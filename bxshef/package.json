@@ -1,0 +1,10 @@
+{
+  "name": "bxshef",
+  "version": "1.0.0",
+  "description": "Проверка навыков для ИИ-агентов на Битриксе: lint, eval, feedback",
+  "bin": { "bxshef": "bin/bxshef.js" },
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "license": "MIT",
+  "files": ["bin", "README.md"]
+}

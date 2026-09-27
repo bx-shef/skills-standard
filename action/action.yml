@@ -1,0 +1,74 @@
+name: 'bx-shef skills check'
+description: 'Проверка репозитория навыков для ИИ-агентов (bx-shef): lint, eval. Один Action для официальных репозиториев и репозиториев энтузиастов.'
+author: 'bx-shef'
+branding:
+  icon: 'check-circle'
+  color: 'blue'
+
+inputs:
+  dir:
+    description: 'Каталог с навыками. По умолчанию .agents/skills, затем .claude/skills, затем корень репозитория'
+    required: false
+    default: ''
+  code:
+    description: 'Каталог с кодом модуля для проверки классов из навыков (--code). Пусто — не проверять'
+    required: false
+    default: ''
+  eval-key:
+    description: 'Ключ модели для eval (BXSHEF_EVAL_KEY). Пусто — eval пропускается'
+    required: false
+    default: ''
+  eval-url:
+    description: 'OpenAI-совместимый endpoint (BXSHEF_EVAL_URL)'
+    required: false
+    default: 'https://vibecode.bitrix24.tech/v1'
+  eval-model:
+    description: 'Модель (BXSHEF_EVAL_MODEL)'
+    required: false
+    default: 'bitrix/bitrixgpt-5.6-agent'
+  min-selection:
+    description: 'Порог доли попаданий eval, ниже — падение'
+    required: false
+    default: '0.9'
+  repeat:
+    description: 'Повторов на фразу в eval'
+    required: false
+    default: '3'
+  bxshef-version:
+    description: 'Версия пакета bxshef'
+    required: false
+    default: 'latest'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: lint
+      shell: bash
+      run: |
+        ARGS=()
+        [ -n "${{ inputs.dir }}" ] && ARGS+=(--dir "${{ inputs.dir }}")
+        [ -n "${{ inputs.code }}" ] && ARGS+=(--code "${{ inputs.code }}")
+        npx --yes bxshef@${{ inputs.bxshef-version }} lint "${ARGS[@]}"
+
+    - name: eval
+      if: inputs.eval-key != ''
+      shell: bash
+      env:
+        BXSHEF_EVAL_KEY: ${{ inputs.eval-key }}
+        BXSHEF_EVAL_URL: ${{ inputs.eval-url }}
+        BXSHEF_EVAL_MODEL: ${{ inputs.eval-model }}
+      run: |
+        ARGS=(--repeat "${{ inputs.repeat }}" --min "${{ inputs.min-selection }}")
+        [ -n "${{ inputs.dir }}" ] && ARGS+=(--dir "${{ inputs.dir }}")
+        npx --yes bxshef@${{ inputs.bxshef-version }} eval "${ARGS[@]}" | tee eval.log
+        echo "### Выбор навыка по фразе" >> "$GITHUB_STEP_SUMMARY"
+        tail -1 eval.log >> "$GITHUB_STEP_SUMMARY"
+
+    - name: eval skipped
+      if: inputs.eval-key == ''
+      shell: bash
+      run: echo "eval пропущен: секрет BXSHEF_EVAL_KEY не задан (Settings → Secrets → Actions)"

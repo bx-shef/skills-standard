@@ -1,0 +1,19 @@
+[
+ {
+  "input": "задача сделана по навыку acme-example, заверши работу",
+  "expected": "acme-feedback"
+ },
+ {
+  "input": "оставь отзыв о навыке, которым пользовался",
+  "expected": "acme-feedback"
+ },
+ {
+  "input": "сделай пример по канону acme",
+  "expected": "acme-example",
+  "notes": "сосед: сама задача, а не отзыв после неё"
+ },
+ {
+  "input": "поправь опечатку в lang-файле модуля",
+  "expected": "<none>"
+ }
+]

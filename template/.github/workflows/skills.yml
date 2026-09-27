@@ -1,0 +1,10 @@
+name: skills
+on: [push, pull_request]
+jobs:
+  skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bx-shef/skills-standard/action@v1
+        with:
+          eval-key: ${{ secrets.BXSHEF_EVAL_KEY }}
