@@ -1,0 +1,10 @@
+services:
+  feedback:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"     # наружу — через nginx с TLS, см. README
+    volumes:
+      - ./data:/data
+    environment:
+      FEEDBACK_TOKEN: ""          # пусто — без токена; задать — POST только с Bearer

@@ -14,6 +14,7 @@ bxshef/       CLI: lint · eval · feedback (npm: bxshef)
 action/       GitHub Action: тот же lint + eval в любом репозитории навыков
 template/     заготовка репозитория навыков для вашего модуля
 stand/        обвязка стенда (bx.php) и образец задач с чек-листами
+feedback/     приёмник отзывов: node без зависимостей, Docker
 ```
 
 ## Быстрый старт для автора модуля
