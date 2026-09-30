@@ -71,4 +71,5 @@ runs:
     - name: eval skipped
       if: inputs.eval-key == ''
       shell: bash
-      run: echo "eval пропущен: секрет BXSHEF_EVAL_KEY не задан (Settings → Secrets → Actions)"
+      run: |
+        echo "eval пропущен: секрет BXSHEF_EVAL_KEY не задан (Settings → Secrets → Actions)"
