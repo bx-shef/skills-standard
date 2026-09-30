@@ -11,9 +11,12 @@
  * Чтение (оба GET /feedback*) — два замка:
  *   - токен: заголовок Authorization: Bearer <FEEDBACK_READ_TOKEN>. Не задан — чтение
  *     закрыто совсем (403);
- *   - откуда: по умолчанию только изнутри контейнера (127.0.0.1 — `make read` на
- *     сервере). Снаружи, через прокси, — только если FEEDBACK_READ_REMOTE=1, иначе 403
- *     даже с верным токеном: утёкший токен сам по себе отзывы не открывает.
+ *   - откуда: по умолчанию только с самого сервера — соединение с 127.0.0.1 без следов
+ *     прокси (`make read`, на Вайбкоде — vibecode.sh read). Снаружи — только если
+ *     FEEDBACK_READ_REMOTE=1, иначе 403 даже с верным токеном: утёкший токен сам по себе
+ *     отзывы не открывает. «Следы прокси» — X-Forwarded-For, Forwarded, X-Real-IP или
+ *     X-Vibe-Request-Id: туннель Вайбкода приходит к приложению с 127.0.0.1, и отличить его
+ *     от своего запроса можно только по заголовку, который шлюз ставит всегда.
  * Неверный токен — не больше FEEDBACK_AUTH_FAILS (5) попыток в минуту с адреса, дальше 429.
  *
  * Отправка: не больше FEEDBACK_RATE (20) в минуту с адреса и FEEDBACK_RATE_TOTAL (300)
@@ -70,6 +73,8 @@ const bearer = (req, token) => {
 // ─── Адрес клиента ──────────────────────────────────────────────────
 const bare = (ip) => String(ip || '').replace(/^::ffff:/, '');
 const isLoopback = (ip) => ip === '127.0.0.1' || ip === '::1';
+const PROXY_HEADERS = ['x-forwarded-for', 'forwarded', 'x-real-ip', 'x-vibe-request-id'];
+const isLocal = (req) => isLoopback(bare(req.socket.remoteAddress)) && !PROXY_HEADERS.some((h) => h in req.headers);
 const isPrivate = (ip) => isLoopback(ip) || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|f[cd])/i.test(ip);
 let proxyAddrs = new Set();
 function resolveProxy() {
@@ -111,7 +116,7 @@ function allowPost(ip) {
 // Ответ, если читать нельзя; null — можно. Таблица неудач переполнена — закрыто для всех.
 function denyRead(req, ip) {
   if (!READ_TOKEN) return [403, 'чтение выключено: задайте FEEDBACK_READ_TOKEN'];
-  if (!READ_REMOTE && !isLoopback(bare(req.socket.remoteAddress))) return [403, 'чтение только с сервера: make read'];
+  if (!READ_REMOTE && !isLocal(req)) return [403, 'чтение только с сервера: make read'];
   tick();
   if ((fails.get(ip) || 0) >= AUTH_FAILS || fails.size >= MAX_KEYS) return [429];
   if (!bearer(req, READ_TOKEN)) { fails.set(ip, (fails.get(ip) || 0) + 1); return [401, 'token']; }

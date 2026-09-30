@@ -52,6 +52,8 @@ jobs:
           check 403 -H 'Authorization: Bearer ci' localhost:8787/feedback.md     # снаружи закрыто и с токеном
           docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md', { headers: { authorization: 'Bearer ci' } }).then(async r => { const t = await r.text(); console.log(r.status, t.split('\n')[0]); process.exit(r.ok && t.includes('| ci |') ? 0 : 1) })"
           docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md').then(r => process.exit(r.status === 401 ? 0 : 1))"
+          # С 127.0.0.1, но через шлюз Вайбкода или прокси — это «снаружи».
+          docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md', { headers: { authorization: 'Bearer ci', 'x-vibe-request-id': '1' } }).then(r => process.exit(r.status === 403 ? 0 : 1))"
           test "$(post)" = 201
           test "$(post)" = 201
           test "$(post)" = 429                                                    # FEEDBACK_RATE=3 в минуту
