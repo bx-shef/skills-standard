@@ -7,15 +7,16 @@
 # их вставляют из чужих сообщений, и `$(shell …)` в значении не должен выполниться.
 
 .DEFAULT_GOAL := help
-.PHONY: help build-local prod-up prod-down prod-pull prod-redeploy logs ps health doctor \
+.PHONY: help build-local prod-up prod-down prod-pull prod-redeploy logs ps health read doctor \
         backup compose-update self-update
 
 override cli = $(if $(filter command line,$(origin $(1))),$(value $(1)),$(2))
-unexport REF CONFIRM
+unexport REF CONFIRM SKILL JSON
 
 # Прод-переменные — только из .env: чужой экспортированный DOMAIN на общем хосте не должен
 # подменить домен приёмника.
 override COMPOSE = env -u DOMAIN -u LETSENCRYPT_EMAIL -u FEEDBACK_TOKEN -u FEEDBACK_READ_TOKEN \
+	-u FEEDBACK_READ_REMOTE -u FEEDBACK_RATE -u FEEDBACK_RATE_TOTAL -u FEEDBACK_RETENTION_DAYS \
 	docker compose -f docker-compose.prod.yml
 override CONTAINER := skills-feedback
 override RAW := https://raw.githubusercontent.com/bx-shef/skills-standard
@@ -62,6 +63,17 @@ ps:
 health:
 	$(COMPOSE) exec -T feedback node -e "fetch('http://127.0.0.1:8787/health').then(r => r.text()).then(console.log)"
 
+## Сводка отзывов (make read JSON=1 — все отзывы JSON, SKILL=<имя> — по одному навыку)
+#
+# Изнутри контейнера: чтение открыто только с 127.0.0.1, токен берётся из окружения контейнера и
+# в командную строку хоста не попадает. SKILL — только из командной строки и проверяется по формату.
+read: export R_SKILL = $(call cli,SKILL,)
+read: export R_JSON = $(call cli,JSON,)
+read:
+	@printf '%s' "$$R_SKILL" | grep -Eqx '[A-Za-z0-9._-]{0,100}' || { echo "[make] SKILL — имя навыка: '$$R_SKILL'"; exit 1; }; \
+	if [ -n "$$R_JSON$$R_SKILL" ]; then u="/feedback?skill=$$R_SKILL"; [ -n "$$R_SKILL" ] || u=/feedback; else u=/feedback.md; fi; \
+	$(COMPOSE) exec -T -e U="$$u" feedback node -e "fetch('http://127.0.0.1:8787' + process.env.U, { headers: { authorization: 'Bearer ' + process.env.FEEDBACK_READ_TOKEN } }).then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1) }, (e) => { console.error(e.message); process.exit(1) })"
+
 ## Проверить выкат: контейнер, прокси, сертификат, https снаружи, чтение закрыто, Watchtower, диск
 #
 # Только читает. ✓ — в порядке, ✗ — ошибка (после «→» — что делать; make завершится с ошибкой),
@@ -90,7 +102,11 @@ doctor:
 	  [ "$$code" = 200 ] && ok "https://$$d/health → 200, сертификат доверенный" \
 	    || fail "https://$$d/health → $$code → DNS A-запись на сервер? логи: docker logs <acme-companion>"; \
 	  code=$$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://$$d/feedback.md"); \
-	  [ "$$code" = 401 ] && ok "чтение без токена закрыто (401)" || fail "GET /feedback.md без токена → $$code, ожидалось 401 → FEEDBACK_READ_TOKEN в .env"; \
+	  case "$$code" in \
+	    403) ok "чтение снаружи закрыто (403) — читать: make read" ;; \
+	    401) ok "чтение снаружи — только с токеном (401 без него; FEEDBACK_READ_REMOTE=1)" ;; \
+	    *) fail "GET /feedback.md без токена → $$code, ожидалось 403 или 401 → FEEDBACK_READ_TOKEN в .env" ;; \
+	  esac; \
 	  end=$$(echo | openssl s_client -connect "$$d:443" -servername "$$d" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2); \
 	  if [ -z "$$end" ]; then note "срок сертификата не прочитать (нет openssl?)"; \
 	  elif echo | openssl s_client -connect "$$d:443" -servername "$$d" 2>/dev/null | openssl x509 -noout -checkend 1209600 >/dev/null 2>&1; \

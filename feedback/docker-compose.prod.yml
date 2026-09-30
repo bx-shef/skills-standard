@@ -29,9 +29,19 @@ services:
       VIRTUAL_PORT: 8787
       LETSENCRYPT_HOST: ${DOMAIN}
       LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-}
-      # Без него чтение закрыто (403) — отзывы некому будет читать.
+      # Без него чтение закрыто (403) — отзывы некому будет читать. Читать — make read на сервере;
+      # снаружи через прокси только при FEEDBACK_READ_REMOTE=1 (и всё равно с токеном).
       FEEDBACK_READ_TOKEN: ${FEEDBACK_READ_TOKEN:?set FEEDBACK_READ_TOKEN (openssl rand -hex 32)}
+      FEEDBACK_READ_REMOTE: ${FEEDBACK_READ_REMOTE:-0}
       FEEDBACK_TOKEN: ${FEEDBACK_TOKEN:-}
+      # Лимиты в минуту и срок хранения — server.js; пусто — значения по умолчанию.
+      FEEDBACK_RATE: ${FEEDBACK_RATE:-20}
+      FEEDBACK_RATE_TOTAL: ${FEEDBACK_RATE_TOTAL:-300}
+      FEEDBACK_RETENTION_DAYS: ${FEEDBACK_RETENTION_DAYS:-3}
+      # За nginx-proxy адрес клиента — последний в X-Forwarded-For (его дописал прокси), иначе
+      # у всех был бы адрес прокси и лимит «в минуту с адреса» стал бы общим. Верим заголовку
+      # только от соединений из частной сети — proxy-net такая.
+      TRUST_PROXY: "1"
     volumes:
       # Отзывы. Без тома их унесёт первое же пересоздание контейнера Watchtower'ом.
       - data:/data

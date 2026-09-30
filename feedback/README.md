@@ -46,13 +46,15 @@ curl -fsSL -O https://raw.githubusercontent.com/bx-shef/skills-standard/main/fee
 curl -fsSL -O https://raw.githubusercontent.com/bx-shef/skills-standard/main/feedback/Makefile
 curl -fsSL -o .env https://raw.githubusercontent.com/bx-shef/skills-standard/main/feedback/.env.example
 chmod 600 .env && nano .env      # DOMAIN, LETSENCRYPT_EMAIL, FEEDBACK_READ_TOKEN=$(openssl rand -hex 32)
+                                 # остальное — лимиты и срок хранения, значения по умолчанию годятся
 make prod-up
 make doctor                      # контейнер, прокси, https, сертификат, чтение закрыто, диск
+make read                        # сводка отзывов
 ```
 
 Дальше обновления приходят сами: CI публикует образ, Watchtower его подхватывает. Сразу —
 `make prod-redeploy`. Новые версии compose-файла и Makefile — `make compose-update`,
-`make self-update`. Копия отзывов — `make backup` (в `./backups`).
+`make self-update`. Копия отзывов — `make backup` (в `./backups`), читать — `make read`.
 
 ## Проекты
 
@@ -64,21 +66,44 @@ make doctor                      # контейнер, прокси, https, се
 { "feedback": "https://feedback.example.org/feedback" }
 ```
 
-Смотреть: `GET /feedback.md` — сводка по навыкам и последние замечания;
-`GET /feedback?skill=<имя>` — JSON по одному навыку. Выгрузить всё — `make backup`. Удаления нет: отзыв — сырьё для правки навыка, а не тикет.
+## Кто читает
 
-Чтение закрыто токеном `FEEDBACK_READ_TOKEN` (на сервере — в `.env`);
-без него оба `GET` отвечают 403 — отзывы видит только автор навыков:
+Отзывы читает автор навыков, и только он. Два замка:
+
+- **токен** `FEEDBACK_READ_TOKEN` (в `.env`). Не задан — чтение закрыто совсем (403);
+- **откуда**: по умолчанию только с самого сервера — `make read`. Снаружи, через
+  `https://<DOMAIN>/feedback.md`, — 403 даже с верным токеном, пока в `.env` не
+  `FEEDBACK_READ_REMOTE=1`. Так утёкший токен сам по себе отзывы не открывает.
+
+```bash
+make read                      # сводка: навыки и последние замечания
+make read SKILL=acme-feedback  # JSON по одному навыку
+make read JSON=1               # все отзывы JSON
+```
+
+С `FEEDBACK_READ_REMOTE=1` — снаружи с токеном:
 
 ```bash
 curl -s -H "Authorization: Bearer $FEEDBACK_READ_TOKEN" https://feedback.example.org/feedback.md
 ```
 
-Что принимается: JSON с обязательными `skill` (строка) и `issues` (массив), до
-64 КБ. `bxshef feedback send` перед отправкой сам не пропускает отзывы, похожие на
-секрет. Хранится только тело отзыва и время приёма — IP и заголовки не пишутся.
-Токен на отправку (`FEEDBACK_TOKEN`) — по желанию; `bxshef` его пока не
-отправляет, так что с ним `send` получит 401.
+Подбор токена: после `FEEDBACK_AUTH_FAILS` (5) неверных попыток в минуту с одного адреса —
+429 до конца минуты, даже с верным токеном.
+
+## Лимиты и хранение
+
+- **Отправка**: не больше `FEEDBACK_RATE` (20) в минуту с одного адреса и
+  `FEEDBACK_RATE_TOTAL` (300) в минуту всего; сверх — 429 с `Retry-After`. Адрес клиента
+  за nginx-proxy — из `X-Forwarded-For` (`TRUST_PROXY=1` в прод-compose), держится только в
+  памяти для счётчика и на диск не пишется.
+- **Что принимается**: JSON с обязательными `skill` (строка) и `issues` (массив), до 64 КБ.
+  `bxshef feedback send` сам не пропускает отзывы, похожие на секрет. Хранится только тело
+  отзыва и время приёма — ни IP, ни заголовков.
+- **Срок**: отзывы старше `FEEDBACK_RETENTION_DAYS` (3) дней удаляются — при старте и раз в
+  час; `0` — не удалять. Отзыв — сырьё для правки навыка: за три дня его читают, остальное
+  копируйте `make backup`.
+- **Токен на отправку** (`FEEDBACK_TOKEN`) — по желанию; `bxshef` его пока не отправляет,
+  так что с ним `send` получит 401.
 
 Как это замыкает цикл: отзыв → правка навыка → PR в репозиторий навыков →
 `lint`/`eval` → новая версия, которую агенты получат через `npx skills update`.

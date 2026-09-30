@@ -10,3 +10,4 @@ services:
     environment:
       FEEDBACK_TOKEN: ""          # пусто — без токена; задать — POST только с Bearer
       FEEDBACK_READ_TOKEN: "dev"  # локально читать: curl -H 'Authorization: Bearer dev' localhost:8787/feedback.md
+      FEEDBACK_READ_REMOTE: "1"   # порт проброшен с хоста — для контейнера это «снаружи»
