@@ -9,7 +9,7 @@
 - [ ] G1. код лежит в `local/modules/acme.demo` (компоненты — в `install/components/` модуля, не в `local/components` напрямую)
 - [ ] G2. установка не пишет ничего вне `local/` кроме `bitrix/admin/acme_demo_*.php`, `bitrix/js|css/acme.demo` — по `footprint-1.txt`, `CORE-TOUCHED` пустой
 - [ ] G3. после `uninstall` в `footprint-2.txt` нет строк `agent`, `option`, `event`, `uf`, `dir`, `admin` и нет «DoUninstall УПАЛ» (`module-dir` — норма)
-- [ ] G4. отзыв в `.bitrixsh/feedback/` есть, в нём `helped` непустой
+- [ ] G4. отзыв в `.bxshef/feedback/` есть, в нём `helped` непустой
 
 ## 1. Модуль с настройкой — повтор (в прогоне 1: навык не взят, 3/5, затёрт menu.php)
 Фраза: Создай модуль acme.demo с одной настройкой «ID склада по умолчанию».

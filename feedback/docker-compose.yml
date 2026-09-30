@@ -1,10 +1,18 @@
+# Локально: собрать из исходников и запустить на 127.0.0.1:8787 (make build-local).
+# Прод — docker-compose.prod.yml: готовый образ из ghcr.io за общим nginx-proxy.
 services:
   feedback:
     build: .
-    restart: unless-stopped
     ports:
-      - "127.0.0.1:8787:8787"     # наружу — через nginx с TLS, см. README
+      - "127.0.0.1:8787:8787"
     volumes:
-      - ./data:/data
+      # Именованный том: берёт владельца /data из образа (node). Каталог ./data с хоста Docker
+      # создал бы от root — и приёмник не смог бы писать.
+      - data:/data
     environment:
       FEEDBACK_TOKEN: ""          # пусто — без токена; задать — POST только с Bearer
+      FEEDBACK_READ_TOKEN: "dev"  # локально читать: curl -H 'Authorization: Bearer dev' localhost:8787/feedback.md
+      FEEDBACK_READ_REMOTE: "1"   # порт проброшен с хоста — для контейнера это «снаружи»
+
+volumes:
+  data:
