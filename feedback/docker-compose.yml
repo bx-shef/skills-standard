@@ -8,3 +8,4 @@ services:
       - ./data:/data
     environment:
       FEEDBACK_TOKEN: ""          # пусто — без токена; задать — POST только с Bearer
+      FEEDBACK_READ_TOKEN: ""     # пусто — чтение закрыто; задать — GET /feedback* только с Bearer
