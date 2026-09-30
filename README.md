@@ -47,7 +47,7 @@ shef.options, shef.problems, shef.insync, собранные по этому с�
 |---|---|---|
 | `bxshef lint [--dir] [--code] [--ignore]` | frontmatter, длина описания, evals у операционных, противоречия в evals, классы из навыка существуют в коде | есть ошибки |
 | `bxshef eval [--repeat 3] [--min 0.9] [--only …] [--agent claude]` | по фразе задачи модель или настоящий Claude Code выбирает нужный навык | доля попаданий ниже порога |
-| `bxshef feedback [send]` | отзывы ИИ-агента из `.bxshef/feedback/`; `send` — на адрес из `.bxshef.json` | отправка не удалась |
+| `bxshef feedback send --skill …` | отзыв ИИ-агента одним вызовом, без файла — на адрес из `.bxshef.json` или `BXSHEF_FEEDBACK_URL` | отзыв не отправлен |
 
 Ключ модели для `eval` — только из окружения (`BXSHEF_EVAL_KEY`), в файлы не
 пишется. По умолчанию — BitrixGPT через AI Router Вайбкода

@@ -15,9 +15,14 @@
  *        выбор навыка по фразе. По умолчанию — модель по API (BXSHEF_EVAL_KEY, BXSHEF_EVAL_URL,
  *        BXSHEF_EVAL_MODEL; по умолчанию BitrixGPT через AI Router Вайбкода). --agent claude —
  *        настоящий Claude Code в пустом каталоге, только чтение и Skill.
+ *   npx bxshef feedback send --skill <имя> --outcome done|partial|failed --task "<строка>"
+ *        [--helped "<что пригодилось>"]… [--issue "<missing|wrong|unclear|noise>: <текст>"]…
+ *        [--agent <claude-code|codex|cursor|…>] [--version <версия навыка>] [--main <версия main>]
+ *        отзыв ИИ-агента одним вызовом, без файла: POST на адрес из .bxshef.json
+ *        ({"feedback": "https://…"}), а без него — из BXSHEF_FEEDBACK_URL. --helped и --issue
+ *        повторяются; при done нужен хотя бы один --helped. Похожее на секрет не уходит.
  *   npx bxshef feedback [send] [--dir <путь>]
- *        отзывы ИИ-агента из .bxshef/feedback/; send — отправить на адрес из .bxshef.json
- *        ({"feedback": "https://…"}) и удалить отправленные. Строки, похожие на секрет, не уходят.
+ *        старый путь: отзывы из файлов .bxshef/feedback/; send — отправить их и удалить.
  *
  * Где искать навыки (--dir не задан): .agents/skills, затем .claude/skills от текущего каталога
  * вверх; либо текущий каталог, если в нём лежат папки с SKILL.md (репозиторий навыков).
@@ -39,6 +44,7 @@ const out = (s) => process.stdout.write(s + '\n');
 const err = (s) => process.stderr.write(s + '\n');
 
 const argOf = (argv, k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : d; };
+const argsOf = (argv, k) => argv.flatMap((a, i) => (a === k && i + 1 < argv.length ? [argv[i + 1]] : []));
 
 /** Каталог с навыками: --dir, иначе поиск вверх от cwd, иначе cwd, если он сам — репозиторий навыков. */
 function skillsRoot(argv) {
@@ -72,9 +78,10 @@ function projectRoot(from) {
 
 function readConfig(root) {
   const f = path.join(root, CONFIG);
-  if (!fs.existsSync(f)) return { feedback: null };
+  const env = process.env.BXSHEF_FEEDBACK_URL || null;
+  if (!fs.existsSync(f)) return { feedback: env };
   const cfg = JSON.parse(fs.readFileSync(f, 'utf8'));
-  return { feedback: cfg.feedback ?? null };
+  return { feedback: cfg.feedback ?? env };
 }
 
 function subdirs(base) {
@@ -340,7 +347,44 @@ function claudeSupports(flag) {
   return claudeHelp.includes(flag);
 }
 
+const KINDS = ['missing', 'wrong', 'unclear', 'noise'];
+const OUTCOMES = ['done', 'partial', 'failed'];
+
+/** Отзыв из параметров вызова: собрать, проверить, отправить одним POST. Файлов не пишет. */
+async function feedbackDirect(argv) {
+  const one = (k) => { const v = argOf(argv, k, null); return v === null ? null : String(v).trim(); };
+  const body = {
+    skill: one('--skill'),
+    version: one('--version') ?? '?',
+    agent: one('--agent') ?? '?',
+    main: one('--main') ?? '?',
+    task: one('--task'),
+    outcome: one('--outcome'),
+    issues: argsOf(argv, '--issue').map((raw) => {
+      const m = /^\s*([a-z]+)\s*:\s*(.+)$/s.exec(raw);
+      if (!m || !KINDS.includes(m[1])) throw new Fail(`--issue «${raw}»: нужно «<${KINDS.join('|')}>: <текст>»`);
+      return { kind: m[1], text: m[2].trim() };
+    }),
+    helped: argsOf(argv, '--helped').map((h) => h.trim()).filter(Boolean),
+  };
+  if (!body.skill) throw new Fail('--skill: имя навыка обязательно');
+  if (!body.task) throw new Fail('--task: задача в одну строку обязательна');
+  if (!OUTCOMES.includes(body.outcome)) throw new Fail(`--outcome: одно из ${OUTCOMES.join(', ')}`);
+  if (body.outcome === 'done' && !body.helped.length) throw new Fail('--helped: при done нужен хотя бы один — что пригодилось');
+  if (SECRET_RE.test(JSON.stringify(body))) { err('похоже на секрет — отзыв не отправлен; переформулируйте без ключей и паролей'); return 1; }
+
+  const url = readConfig(projectRoot(process.cwd())).feedback;
+  if (!url) { err('адрес для отзывов не задан: "feedback" в .bxshef.json или BXSHEF_FEEDBACK_URL — отзыв не отправлен'); return 1; }
+  let res;
+  try { res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
+  catch (e) { err(`отзыв не отправлен: ${e.cause?.code ?? e.message}`); return 1; }
+  if (!res.ok) { err(`отзыв не отправлен: ${res.status}`); return 1; }
+  out(`отзыв отправлен: ${body.skill} (${body.outcome}), замечаний: ${body.issues.length}`);
+  return 0;
+}
+
 async function feedback(argv) {
+  if (argv[0] === 'send' && argv.includes('--skill')) return feedbackDirect(argv);
   const root = projectRoot(argOf(argv, '--dir', process.cwd()));
   const dir = path.join(root, FEEDBACK_DIR);
   const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort() : [];
@@ -361,7 +405,7 @@ async function feedback(argv) {
   }
   if (argv[0] !== 'send') return 0;
   const url = readConfig(root).feedback;
-  if (!url) { err('в .bxshef.json нет "feedback": адрес, куда отправлять'); return 1; }
+  if (!url) { err('адрес для отзывов не задан: "feedback" в .bxshef.json или BXSHEF_FEEDBACK_URL'); return 1; }
   let sent = 0;
   for (const it of items) {
     const { file, ...body } = it;
