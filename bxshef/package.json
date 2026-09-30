@@ -1,6 +1,6 @@
 {
   "name": "bxshef",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Проверка навыков для ИИ-агентов на Битриксе: lint, eval, feedback",
   "bin": {
     "bxshef": "bin/bxshef.js"
