@@ -1,0 +1,59 @@
+# Продакшн — на сервере в /home/bitrix/skills-feedback/ (README.md, раздел «Сервер»). Схема та же,
+# что у остальных приложений bx-shef (эталон — client-bank-alfa-by). Требует на хосте:
+#   - docker-сеть proxy-net и общий nginx-proxy + acme-companion (TLS Let's Encrypt) — один на
+#     сервер (currency-converter/docker-compose.nginxproxy.yml);
+#   - Watchtower с --label-enable — один на сервер, подхватит контейнер по метке ниже. Свой не
+#     поднимаем: второй конфликтует по container_name и перезапускает всё дважды;
+#   - .env рядом с этим файлом (шаблон — .env.example).
+#
+# Наружу приёмник выставляет nginx-proxy по VIRTUAL_HOST — порта на хосте нет.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+    compress: "true"
+
+services:
+  feedback:
+    logging: *default-logging
+    image: ghcr.io/bx-shef/skills-standard-feedback:latest
+    container_name: skills-feedback
+    expose:
+      - "8787"
+    environment:
+      # nginx-proxy + acme-companion: по этим переменным прокси найдёт контейнер и выпустит TLS.
+      # ⚠ DNS A-запись DOMAIN должна указывать на сервер ДО подъёма, иначе сертификат не выпустится.
+      VIRTUAL_HOST: ${DOMAIN:?set DOMAIN (feedback.example.org)}
+      VIRTUAL_PORT: 8787
+      LETSENCRYPT_HOST: ${DOMAIN}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-}
+      # Без него чтение закрыто (403) — отзывы некому будет читать.
+      FEEDBACK_READ_TOKEN: ${FEEDBACK_READ_TOKEN:?set FEEDBACK_READ_TOKEN (openssl rand -hex 32)}
+      FEEDBACK_TOKEN: ${FEEDBACK_TOKEN:-}
+    volumes:
+      # Отзывы. Без тома их унесёт первое же пересоздание контейнера Watchtower'ом.
+      - data:/data
+    restart: unless-stopped
+    healthcheck:
+      # 127.0.0.1, а не localhost: в контейнере localhost резолвится и в ::1.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - proxy-net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      # Node закрывает простаивающие соединения через 5 с, а nginx-proxy держит их до 60 с:
+      # POST в уже закрытое соединение — 502, и nginx его не повторяет. Без keepalive гонки нет.
+      - "com.github.nginx-proxy.nginx-proxy.keepalive=disabled"
+
+volumes:
+  data:
+
+networks:
+  proxy-net:
+    external: true
