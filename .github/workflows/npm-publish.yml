@@ -1,0 +1,103 @@
+name: npm-publish
+
+on:
+  # Ручной путь: GitHub Release, созданный руками.
+  release:
+    types: [ published ]
+  # Автоматический путь: release-please.yml запускает с --ref <tag>.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  await-ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      SHA: ${{ github.sha }}
+    steps:
+      # Тег может стоять на любом коммите — в npm уходит только история main.
+      - name: ${{ github.sha }} есть в main
+        run: |
+          status=""
+          for i in 1 2 3 4 5; do
+            status=$(gh api "repos/$REPO/compare/main...$SHA" --jq '.status') && break
+            echo "Попытка $i/5: compare API не ответил, повтор через 15 с"; sleep 15
+          done
+          echo "compare main...$SHA -> $status"
+          case "$status" in
+            identical|behind) ;;
+            *) echo "$SHA не в main (status=$status) — не публикую"; exit 1 ;;
+          esac
+
+      - name: ci.yml зелёный на ${{ github.sha }}
+        run: |
+          for i in $(seq 1 60); do
+            run=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=1" --jq '.workflow_runs[0] // empty')
+            if [ -z "$run" ]; then echo "Попытка $i/60: прогона ci.yml ещё нет"; sleep 30; continue; fi
+            status=$(echo "$run" | jq -r '.status'); conclusion=$(echo "$run" | jq -r '.conclusion')
+            echo "Попытка $i/60: status=$status conclusion=$conclusion"
+            if [ "$status" = "completed" ]; then
+              [ "$conclusion" = "success" ] && exit 0
+              echo "ci.yml не прошёл на $SHA"; exit 1
+            fi
+            sleep 30
+          done
+          echo "Не дождался ci.yml за 30 минут"; exit 1
+
+  publish:
+    needs: await-ci
+    runs-on: ubuntu-latest
+    # Окружение npm-publish: в настройках репозитория можно добавить
+    # обязательных ревьюеров; то же имя указывается в trusted publisher на npm.
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: bxshef
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 'lts/*'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Повторный запуск для уже опубликованной версии — не ошибка, а пропуск;
+      # версия старее latest не публикуется, чтобы не откатить dist-tag.
+      - name: Версия ещё не в npm и не старее latest
+        id: version-check
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version --silent >/dev/null 2>&1; then
+            echo "$name@$version уже опубликован — пропуск"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          latest=$(npm view "$name" dist-tags.latest --silent 2>/dev/null || echo "")
+          if [ -n "$latest" ]; then
+            newer=$(node -p "
+              const p = s => s.split('-')[0].split('.').map(Number);
+              const [a, b] = [p('$version'), p('$latest')];
+              let r = 0;
+              for (let i = 0; i < 3; i++) { if (a[i] !== b[i]) { r = a[i] > b[i] ? 1 : -1; break } }
+              r
+            ")
+            if [ "$newer" = "-1" ]; then
+              echo "::warning::$version старее latest $latest — не публикую"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      # Trusted publishing (OIDC): токен npm не хранится нигде.
+      - name: npm publish
+        if: steps.version-check.outputs.skip == 'false'
+        run: npm publish --provenance --access public

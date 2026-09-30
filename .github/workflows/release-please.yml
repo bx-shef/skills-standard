@@ -1,0 +1,67 @@
+name: release-please
+
+# Держит открытым release-PR: версия в bxshef/package.json + bxshef/CHANGELOG.md
+# из conventional-коммитов (feat:, fix:), затронувших bxshef/. Слияние PR создаёт
+# тег vX.Y.Z и GitHub Release, двигает тег v1 и запускает публикацию в npm.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: Release-PR / релиз
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: CI на release-PR
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run ci.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ fromJSON(steps.release.outputs.pr).headBranchName }}"
+
+      # Action подключают как bx-shef/skills-standard/action@vN — плавающий
+      # мажорный тег переносится на каждый релиз своей мажорной версии.
+      - name: Перенести тег v${{ steps.release.outputs['bxshef--major'] }}
+        if: steps.release.outputs['bxshef--release_created'] == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAJOR: v${{ steps.release.outputs['bxshef--major'] }}
+          SHA: ${{ steps.release.outputs['bxshef--sha'] }}
+        # GITHUB_TOKEN не может двигать ref через коммиты, меняющие
+        # .github/workflows/ — тогда перенос руками, публикацию это не держит.
+        run: |
+          gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/$MAJOR" -f sha="$SHA" -F force=true \
+            || gh api -X POST "repos/${{ github.repository }}/git/refs" -f ref="refs/tags/$MAJOR" -f sha="$SHA" \
+            || echo "::warning::Тег $MAJOR не перенесён. Руками: git tag -f $MAJOR $SHA && git push -f origin $MAJOR"
+
+      # Через dispatch, а не workflow_call: trusted publishing в npm сверяет
+      # workflow_ref токена — это должен быть npm-publish.yml, и --ref <tag>
+      # публикует ровно помеченный коммит.
+      - name: Публикация ${{ steps.release.outputs['bxshef--tag_name'] }}
+        if: steps.release.outputs['bxshef--release_created'] == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run npm-publish.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ steps.release.outputs['bxshef--tag_name'] }}"

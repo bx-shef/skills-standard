@@ -17,7 +17,12 @@ npm i --no-save ./bxshef/bxshef-*.tgz
 npx bxshef lint --dir template/.agents/skills          # заготовка проходит свой же lint
 ```
 
-Если меняется `bxshef` — версия в `bxshef/package.json`, запись в
-`bxshef/CHANGELOG.md`, и `action/action.yml` должен работать с новой версией.
+Выпуск `bxshef` автоматический: коммиты в main — conventional (`feat:`,
+`fix:`, `feat!:` для несовместимых; `docs:`, `chore:`, `ci:` релиз не
+делают). release-please держит release-PR с версией в `bxshef/package.json`
+и записью в `bxshef/CHANGELOG.md`; слияние PR — тег, Release, публикация в
+npm (`.github/workflows/npm-publish.yml`, trusted publishing). Версию и
+CHANGELOG руками не править. `action/action.yml` должен работать с новой
+версией.
 Слово «bitrix» в собственных именах не используется: инструмент — `bxshef`,
 переменные — `BXSHEF_*`, каталог — `.bxshef/`.
