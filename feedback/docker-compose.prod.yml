@@ -8,6 +8,9 @@
 #
 # Наружу приёмник выставляет nginx-proxy по VIRTUAL_HOST — порта на хосте нет.
 
+# Имя проекта — явно: от него имя тома с отзывами, и оно не должно зависеть от каталога.
+name: skills-feedback
+
 x-logging: &default-logging
   driver: json-file
   options:
@@ -34,14 +37,18 @@ services:
       FEEDBACK_READ_TOKEN: ${FEEDBACK_READ_TOKEN:?set FEEDBACK_READ_TOKEN (openssl rand -hex 32)}
       FEEDBACK_READ_REMOTE: ${FEEDBACK_READ_REMOTE:-0}
       FEEDBACK_TOKEN: ${FEEDBACK_TOKEN:-}
-      # Лимиты в минуту и срок хранения — server.js; пусто — значения по умолчанию.
+      # Лимиты, место и срок хранения — server.js; пусто — значения по умолчанию.
       FEEDBACK_RATE: ${FEEDBACK_RATE:-20}
       FEEDBACK_RATE_TOTAL: ${FEEDBACK_RATE_TOTAL:-300}
+      FEEDBACK_AUTH_FAILS: ${FEEDBACK_AUTH_FAILS:-5}
+      FEEDBACK_MAX_FILES: ${FEEDBACK_MAX_FILES:-20000}
+      FEEDBACK_MAX_MB: ${FEEDBACK_MAX_MB:-200}
       FEEDBACK_RETENTION_DAYS: ${FEEDBACK_RETENTION_DAYS:-3}
       # За nginx-proxy адрес клиента — последний в X-Forwarded-For (его дописал прокси), иначе
-      # у всех был бы адрес прокси и лимит «в минуту с адреса» стал бы общим. Верим заголовку
-      # только от соединений из частной сети — proxy-net такая.
-      TRUST_PROXY: "1"
+      # у всех был бы адрес прокси и лимит «в минуту с адреса» стал бы общим. 1 — верить
+      # соединениям из частной сети (proxy-net); имя контейнера прокси (TRUST_PROXY=nginx-proxy)
+      # — только ему, тогда соседи по proxy-net не подделают адрес.
+      TRUST_PROXY: ${TRUST_PROXY:-1}
     volumes:
       # Отзывы. Без тома их унесёт первое же пересоздание контейнера Watchtower'ом.
       - data:/data

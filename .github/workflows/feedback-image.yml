@@ -40,6 +40,7 @@ jobs:
       # Том как на проде (именованный): ловит права на /data, а не только синтаксис. С хоста
       # контейнер видит «внешний» адрес — как запросы через прокси на сервере.
       - name: Дымовая проверка
+        shell: bash  # -eo pipefail; проверки ниже — отдельными строками, без && и !: их set -e не ловит
         run: |
           docker volume create fb-ci
           docker run -d --name fb -p 127.0.0.1:8787:8787 -v fb-ci:/data \
@@ -47,14 +48,22 @@ jobs:
           for i in $(seq 1 20); do curl -fs localhost:8787/health && break; sleep 1; done
           check() { got=$(curl -s -o /dev/null -w '%{http_code}' "${@:2}"); echo "$1 → $got  ${*:2}"; [ "$got" = "$1" ]; }
           post() { curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"skill":"ci","issues":[]}' localhost:8787/feedback; }
-          [ "$(post)" = 201 ]
+          test "$(post)" = 201
           check 403 -H 'Authorization: Bearer ci' localhost:8787/feedback.md     # снаружи закрыто и с токеном
           docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md', { headers: { authorization: 'Bearer ci' } }).then(async r => { const t = await r.text(); console.log(r.status, t.split('\n')[0]); process.exit(r.ok && t.includes('| ci |') ? 0 : 1) })"
           docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md').then(r => process.exit(r.status === 401 ? 0 : 1))"
-          [ "$(post)" = 201 ] && [ "$(post)" = 201 ] && [ "$(post)" = 429 ]         # FEEDBACK_RATE=3 в минуту
-          docker exec fb sh -c 'cat /data/*.json' | grep -q '"skill": "ci"'
-          ! docker exec fb sh -c 'cat /data/*.json' | grep -q '"ip"'
-          docker logs fb
+          test "$(post)" = 201
+          test "$(post)" = 201
+          test "$(post)" = 429                                                    # FEEDBACK_RATE=3 в минуту
+          docker exec fb sh -c 'cat /data/*.json' | grep -q '"skill":"ci"'
+          if docker exec fb sh -c 'cat /data/*.json' | grep -q '"ip"'; then echo "в отзыве IP"; exit 1; fi
+          # Кривой адрес запроса не должен ронять процесс.
+          printf 'GET //[ HTTP/1.1\r\nHost: x\r\n\r\n' | nc -q1 127.0.0.1 8787 | head -1 | grep -q ' 400 '
+          curl -fs localhost:8787/health
+
+      - name: Лог приёмника
+        if: always()
+        run: docker logs fb || true
 
       - name: Вход в GHCR
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

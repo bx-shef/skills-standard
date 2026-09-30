@@ -4,8 +4,8 @@
 зависимостей, хранение — JSON-файлы в каталоге, Docker.
 
 ```bash
-cd feedback && make build-local               # 127.0.0.1:8787, токен чтения — dev
-curl -s localhost:8787/health                 # {"ok":true}
+cd feedback && make build-local               # на переднем плане: 127.0.0.1:8787, токен чтения — dev
+curl -s localhost:8787/health                 # в другом терминале: {"ok":true}
 ```
 
 `make` без цели печатает список целей. Образ собирает CI (`.github/workflows/feedback-image.yml`)
@@ -45,8 +45,8 @@ mkdir -p /home/bitrix/skills-feedback && cd /home/bitrix/skills-feedback
 curl -fsSL -O https://raw.githubusercontent.com/bx-shef/skills-standard/main/feedback/docker-compose.prod.yml
 curl -fsSL -O https://raw.githubusercontent.com/bx-shef/skills-standard/main/feedback/Makefile
 curl -fsSL -o .env https://raw.githubusercontent.com/bx-shef/skills-standard/main/feedback/.env.example
-chmod 600 .env && nano .env      # DOMAIN, LETSENCRYPT_EMAIL, FEEDBACK_READ_TOKEN=$(openssl rand -hex 32)
-                                 # остальное — лимиты и срок хранения, значения по умолчанию годятся
+openssl rand -hex 32             # это значение — в FEEDBACK_READ_TOKEN (.env не выполняет команды)
+chmod 600 .env && nano .env      # DOMAIN, LETSENCRYPT_EMAIL, FEEDBACK_READ_TOKEN; остальное — по умолчанию
 make prod-up
 make doctor                      # контейнер, прокси, https, сертификат, чтение закрыто, диск
 make read                        # сводка отзывов
@@ -88,17 +88,23 @@ curl -s -H "Authorization: Bearer $FEEDBACK_READ_TOKEN" https://feedback.example
 ```
 
 Подбор токена: после `FEEDBACK_AUTH_FAILS` (5) неверных попыток в минуту с одного адреса —
-429 до конца минуты, даже с верным токеном.
+429 до конца минуты, даже с верным токеном. Сводка экранирует разметку и управляющие символы
+из отзывов: `make read` печатает её в терминал, и чужой текст не должен им управлять.
 
 ## Лимиты и хранение
 
 - **Отправка**: не больше `FEEDBACK_RATE` (20) в минуту с одного адреса и
   `FEEDBACK_RATE_TOTAL` (300) в минуту всего; сверх — 429 с `Retry-After`. Адрес клиента
-  за nginx-proxy — из `X-Forwarded-For` (`TRUST_PROXY=1` в прод-compose), держится только в
-  памяти для счётчика и на диск не пишется.
+  за nginx-proxy — последний в `X-Forwarded-For`, держится только в памяти для счётчика и на
+  диск не пишется. `TRUST_PROXY=1` верит заголовку от всей частной сети; строже —
+  `TRUST_PROXY=<имя контейнера nginx-proxy>`: тогда соседи по `proxy-net` не подделают адрес.
 - **Что принимается**: JSON с обязательными `skill` (строка) и `issues` (массив), до 64 КБ.
-  `bxshef feedback send` сам не пропускает отзывы, похожие на секрет. Хранится только тело
-  отзыва и время приёма — ни IP, ни заголовков.
+  `bxshef feedback send` сам не пропускает отзывы, похожие на секрет. Сохраняются только
+  известные поля отзыва (`skill`, `version`, `agent`, `main`, `task`, `outcome`,
+  `issues[].kind/text`, `helped`) строками ограниченной длины и время приёма — ни IP, ни
+  заголовков, ни посторонних полей.
+- **Место**: не больше `FEEDBACK_MAX_FILES` (20000) отзывов и `FEEDBACK_MAX_MB` (200);
+  сверх — 507, пока старые не уйдут по сроку. Диск сервера общий — приёмник его не забьёт.
 - **Срок**: отзывы старше `FEEDBACK_RETENTION_DAYS` (3) дней удаляются — при старте и раз в
   час; `0` — не удалять. Отзыв — сырьё для правки навыка: за три дня его читают, остальное
   копируйте `make backup`.
