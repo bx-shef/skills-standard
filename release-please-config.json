@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "03cbed98a44af7f4bdf4eeea56b2eca14c364075",
+  "include-component-in-tag": false,
+  "packages": {
+    "bxshef": {
+      "release-type": "node",
+      "package-name": "bxshef",
+      "changelog-sections": [
+        { "type": "feat", "section": "Новое" },
+        { "type": "fix", "section": "Исправления" },
+        { "type": "perf", "section": "Скорость" },
+        { "type": "revert", "section": "Откаты" },
+        { "type": "docs", "section": "Документация", "hidden": true },
+        { "type": "chore", "section": "Прочее", "hidden": true },
+        { "type": "ci", "section": "CI", "hidden": true },
+        { "type": "refactor", "section": "Прочее", "hidden": true }
+      ]
+    }
+  }
+}

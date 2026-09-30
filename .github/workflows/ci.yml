@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  # Запускается из release-please.yml на ветке release-PR: pull_request от бота
+  # с GITHUB_TOKEN сам CI не стартует.
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Прогон на main ждёт npm-publish.yml — отменять можно только PR.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 'lts/*'
+
+      - name: Синтаксис CLI
+        run: node --check bxshef/bin/bxshef.js
+
+      # Та же проверка, что в CLAUDE.md: заготовка проходит свой же lint
+      # установленным из tgz пакетом — ровно тем, что уйдёт в npm.
+      - name: Заготовка проходит lint
+        run: |
+          (cd bxshef && npm pack)
+          npm i --no-save ./bxshef/bxshef-*.tgz
+          npx bxshef lint --dir template/.agents/skills

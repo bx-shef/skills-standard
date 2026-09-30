@@ -2,9 +2,21 @@
   "name": "bxshef",
   "version": "1.0.0",
   "description": "Проверка навыков для ИИ-агентов на Битриксе: lint, eval, feedback",
-  "bin": { "bxshef": "bin/bxshef.js" },
+  "bin": {
+    "bxshef": "bin/bxshef.js"
+  },
   "type": "module",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "license": "MIT",
-  "files": ["bin", "README.md"]
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bx-shef/skills-standard.git",
+    "directory": "bxshef"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ]
 }
