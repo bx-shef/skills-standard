@@ -93,6 +93,40 @@ BXSHEF_EVAL_KEY=… npx bxshef eval --dir skills --repeat 3   # ключ — и�
 модулей; репозиторий модуля забирает навыки и гоняет `lint --code` против
 себя — переименовали класс, PR модуля красный, пока не поправлен навык.
 
+*Репозиторий модуля* ([#9](https://github.com/bx-shef/skills-standard/issues/9)):
+
+1. **Навыков в модуле нет** — ни `.claude/skills/`, ни копий, ни синхронизации:
+   две копии расходятся с первой же правки.
+2. **`README.md`**, раздел «Для ИИ-агентов» сразу после «Установки»: «Навыки
+   для ИИ-агентов (Claude Code, Codex, Cursor) — в
+   [`<owner>/<repo>`](https://github.com/<owner>/<repo>). В проект:
+   `npx skills add <owner>/<repo>`».
+3. **`CLAUDE.md` / `AGENTS.md`** — для агента, который правит сам модуль:
+   навыки лежат там-то; правка класса или сигнатуры здесь требует правки
+   навыка там; порядок — сначала PR в навыки, потом сюда.
+4. **`composer.json`** → `"suggest": {"<vendor>/skills": "Навыки для ИИ-агентов:
+   npx skills add <owner>/<repo>"}` — пакета нет, это подсказка при
+   `composer require`.
+5. **CI модуля — «навыки не расходятся с кодом»**: в общий каталог забрать
+   репозиторий навыков, этот модуль из PR и соседние модули со свежего `main`
+   (без соседей их классы с общим корнем, `Vendor\…`, будут «не найдены»), и
+   `bx-shef/skills-standard/action@v1` с `dir: .check/skills/skills`,
+   `code: .check/modules`. `eval-key` не передаётся — eval пропускается: в
+   модуле проверяется только связь классов с кодом. Готовый файл —
+   [`template/module/skills.yml`](template/module/skills.yml); `.check/` — в
+   `.gitignore`.
+
+*На проекте* — по `npx skills@latest`:
+
+- `npx skills add <owner>/<repo>` ставит навыки в `.agents/skills/<имя>/`, для
+  Claude Code делает ссылку в `.claude/skills/` и пишет `skills-lock.json`
+  (источник и хеш). Lock-файл коммитят; восстановить навыки по нему —
+  `npx skills experimental_install`, обновить — `npx skills update`.
+- Файлы навыков в проекте не правят: замечание уходит отзывом
+  (`<префикс>-feedback`), и навык правит автор.
+- Отзыву ничего настраивать не нужно: адрес приёмника записан в самом навыке
+  отзыва, агент шлёт тикет `curl`-ом (`feedback/README.md`).
+
 **12. Раскладка репозитория навыков — `skills/<имя>/SKILL.md`.** Рядом с
 навыком — его `evals/`, в корне — `README.md` и CI. Не из прогона — решение
 владельца ([#10](https://github.com/bx-shef/skills-standard/issues/10)): шаблон
