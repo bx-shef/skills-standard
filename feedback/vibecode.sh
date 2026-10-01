@@ -139,7 +139,7 @@ print(json.dumps({
     "dataDirs": [os.environ["DATA_DIR"]],
     "healthPath": "/health",
     "displayName": "bxshef: приёмник отзывов",
-    "description": "Принимает отзывы ИИ-агентов о навыках (bxshef feedback send).",
+    "description": "Принимает отзывы ИИ-агентов о навыках.",
 }))
 ')"
   echo "==> выкладываю"
