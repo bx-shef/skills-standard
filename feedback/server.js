@@ -2,10 +2,12 @@
 /**
  * Приёмник отзывов bxshef. Без зависимостей: node:http + файлы.
  *
- *   POST /feedback        тикет в формате POST /v1/feedback Вайбкода — один формат:
+ *   POST /feedback        тикет — JSON:
  *                         { category, title, body, context: { skill, agent, version,
  *                         main, outcome, helped[] } }; агент шлёт его сам (curl,
- *                         PowerShell — навык <префикс>-feedback). Ответ 201
+ *                         PowerShell — навык <префикс>-feedback). То же формой
+ *                         (x-www-form-urlencoded: category, title, body, skill, outcome,
+ *                         agent, version, main, helped — повторяется). Ответ 201
  *                         { success: true, data: { id, category, title, status, createdAt } }.
  *                         Из текста вычищаются секреты, адреса, домены, почта, IP, пути и
  *                         телефоны — до записи на диск (SCRUB ниже). Прочие поля отбрасываются.
@@ -196,6 +198,18 @@ function normalize(j, stored = false) {
   return { it };
 }
 
+// Тот же тикет формой (application/x-www-form-urlencoded) — для curl --data-urlencode без JSON в
+// команде: проверки оболочки у агентов (Claude Code) не пропускают команду с «{"» внутри. Поля
+// плоско: category, title, body, skill, outcome, agent, version, main; helped — повторяется.
+function fromForm(raw) {
+  const f = new URLSearchParams(raw);
+  const v = (k) => (f.has(k) ? f.get(k) : undefined);
+  const context = { skill: v('skill'), outcome: v('outcome'), agent: v('agent'), version: v('version'), main: v('main') };
+  const helped = f.getAll('helped');
+  if (helped.length) context.helped = helped;
+  return { category: v('category'), title: v('title'), body: v('body'), context };
+}
+
 // ─── Хранилище ──────────────────────────────────────────────────────
 let stored = { files: 0, bytes: 0 };
 function sweep() {
@@ -262,7 +276,12 @@ function receive(req, res, ip) {
   req.on('end', () => {
     if (over) return;
     try {
-      let j; try { j = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return fail(res, 400, 'VALIDATION_ERROR', 'тело — не JSON'); }
+      const raw = Buffer.concat(chunks).toString('utf8');
+      let j;
+      // JSON — по содержимому, а не по заголовку: `curl -d '{…}'` шлёт JSON с типом формы.
+      if (raw.trimStart().startsWith('{')) { try { j = JSON.parse(raw); } catch { return fail(res, 400, 'VALIDATION_ERROR', 'тело — не JSON'); } }
+      else if (/^application\/x-www-form-urlencoded/i.test(req.headers['content-type'] || '')) j = fromForm(raw);
+      else return fail(res, 400, 'VALIDATION_ERROR', 'тело — JSON или форма');
       const { it, errors } = normalize(j);
       if (errors) return fail(res, 400, 'VALIDATION_ERROR', errors.join('; '));
       if (stored.files >= MAX_FILES || stored.bytes >= MAX_BYTES) return fail(res, 507, 'STORAGE_FULL', 'хранилище заполнено');

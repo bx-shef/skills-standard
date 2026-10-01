@@ -64,9 +64,10 @@ make read                        # сводка отзывов
 Адрес приёмника — `https://<DOMAIN>/feedback`. Его вписывают **в сам навык отзыва** набора
 (раздел «Отправить» в `template/skills/acme-feedback/SKILL.md` — заменить
 `feedback.example.org`). Навыки ставятся штатно (`npx skills add <owner/repo>`), и агент
-отправляет отзыв сам — `curl` или PowerShell; в проектах ничего ставить и настраивать не нужно.
+отправляет отзыв сам — одной командой `curl --data-urlencode …`; в проектах ничего ставить и
+настраивать не нужно.
 
-Формат один — тикет как у `POST /v1/feedback` Вайбкода: плоский JSON, ответ
+Тикет — поля ниже, формой (так шлёт навык) или JSON; ответ
 `201 {"success": true, "data": {"id", "category", "title", "status": "NEW", "createdAt"}}`, ошибки
 `{"success": false, "error": {"code", "message"}}` (`VALIDATION_ERROR` перечисляет поля).
 
@@ -79,6 +80,12 @@ make read                        # сводка отзывов
 | `context.outcome` | нет | `done`, `partial`, `failed` |
 | `context.helped` | нет | массив строк — что пригодилось (до 20) |
 | `context.agent`, `.version`, `.main` | нет | короткие строки |
+
+Тот же тикет принимается **формой** (`application/x-www-form-urlencoded`) — так шлёт навык:
+`category`, `title`, `body`, `skill`, `outcome`, `agent`, `version`, `main` плоско, `helped` —
+повторяется (`--data-urlencode helped=… --data-urlencode helped=…`). Зачем: JSON в самой команде
+(`{"…`) проверки оболочки у агентов не пропускают — Claude Code отклоняет такую команду, — а
+форма проходит без файла и без heredoc.
 
 Прочие поля тела и `context` отбрасываются. Для навыков категории значат: `BUG` — навык
 расходится с кодом, `DOCS` — неясно или лишнее, `SUGGESTION` — не хватило, `OTHER` — замечаний нет.
