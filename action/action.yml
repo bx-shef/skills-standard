@@ -7,7 +7,7 @@ branding:
 
 inputs:
   dir:
-    description: 'Каталог с навыками. По умолчанию .agents/skills, затем .claude/skills, затем корень репозитория'
+    description: 'Каталог с навыками. По умолчанию .agents/skills, .claude/skills, затем skills/ с папками навыков (STANDARD п. 12), затем корень репозитория'
     required: false
     default: ''
   code:

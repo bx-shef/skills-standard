@@ -38,4 +38,4 @@ jobs:
         run: |
           (cd bxshef && npm pack)
           npm i --no-save ./bxshef/bxshef-*.tgz
-          npx bxshef lint --dir template/.agents/skills
+          npx bxshef lint --dir template/skills

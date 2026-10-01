@@ -83,8 +83,8 @@ namespace, метод с массивом вместо строки, насле�
 можно только прогоном. CI сделает это на PR, локально быстрее:
 
 ```bash
-npx bxshef lint --dir .agents/skills --code <путь к исходникам модуля>
-BXSHEF_EVAL_KEY=… npx bxshef eval --dir .agents/skills --repeat 3   # ключ — из окружения
+npx bxshef lint --dir skills --code <путь к исходникам модуля>
+BXSHEF_EVAL_KEY=… npx bxshef eval --dir skills --repeat 3   # ключ — из окружения
 ```
 
 **11. Навыки автора живут в одном репозитории, не в репозитории модуля.**
@@ -92,3 +92,12 @@ BXSHEF_EVAL_KEY=… npx bxshef eval --dir .agents/skills --repeat 3   # ключ
 стороны: репозиторий навыков гоняет `lint --code` против свежих `main`
 модулей; репозиторий модуля забирает навыки и гоняет `lint --code` против
 себя — переименовали класс, PR модуля красный, пока не поправлен навык.
+
+**12. Раскладка репозитория навыков — `skills/<имя>/SKILL.md`.** Рядом с
+навыком — его `evals/`, в корне — `README.md` и CI. Не из прогона — решение
+владельца ([#10](https://github.com/bx-shef/skills-standard/issues/10)): шаблон
+лежал в `.agents/skills/`, эталон — в `skills/`, и автор, сверявший одно с
+другим, не знал, какому верить. `.agents/` — каталог проекта, куда навыки
+ставят; в репозитории навыков ставить некуда. Пользователю раскладка не видна:
+`npx skills add` находит навыки в `skills/` и кладёт их в проект в
+`.agents/skills/`; `bxshef` без `--dir` находит `skills/` сам.
