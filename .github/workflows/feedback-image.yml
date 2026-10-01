@@ -44,7 +44,7 @@ jobs:
         run: |
           docker volume create fb-ci
           docker run -d --name fb -p 127.0.0.1:8787:8787 -v fb-ci:/data \
-            -e FEEDBACK_READ_TOKEN=ci -e FEEDBACK_RATE=3 skills-feedback:ci
+            -e FEEDBACK_READ_TOKEN=ci -e FEEDBACK_RATE=4 skills-feedback:ci
           for i in $(seq 1 20); do curl -fs localhost:8787/health && break; sleep 1; done
           check() { got=$(curl -s -o /dev/null -w '%{http_code}' "${@:2}"); echo "$1 → $got  ${*:2}"; [ "$got" = "$1" ]; }
           post() { curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"category":"DOCS","title":"ci: проверка","body":"ключ vibe_api_AbCdEf1234567890xyz в тексте","context":{"skill":"ci","outcome":"done"}}' localhost:8787/feedback; }
@@ -54,12 +54,15 @@ jobs:
           docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md').then(r => process.exit(r.status === 401 ? 0 : 1))"
           # С 127.0.0.1, но через прокси — это «снаружи».
           docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md', { headers: { authorization: 'Bearer ci', 'x-forwarded-for': '203.0.113.1' } }).then(r => process.exit(r.status === 403 ? 0 : 1))"
-          # Только формат тикета; запрос считается в лимит (первый post выше + этот = 2 из 3).
+          # Только формат тикета; запрос считается в лимит (первый post выше + этот = 2 из 4).
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"skill":"ci","issues":[]}' localhost:8787/feedback)" = 400
           # Тот же тикет формой — так шлёт навык (curl --data-urlencode, без JSON в команде).
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST --data-urlencode category=OTHER --data-urlencode 'title=ci: форма' --data-urlencode 'body=Проверка формы, замечаний нет.' --data-urlencode skill=ci-form --data-urlencode outcome=done --data-urlencode helped=a --data-urlencode helped=b localhost:8787/feedback)" = 201
-          test "$(post)" = 429                                                    # FEEDBACK_RATE=3 в минуту
+          # Форма в cp1251 — так кодирует аргументы curl.exe на русской Windows; кириллица не должна стать «����».
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/x-www-form-urlencoded' --data-binary 'category=OTHER&title=ci%3A%20%EA%EE%E4%E8%F0%EE%E2%EA%E0&body=%CF%F0%EE%E2%E5%F0%EA%E0%20cp1251%2C%20%E7%E0%EC%E5%F7%E0%ED%E8%E9%20%ED%E5%F2.&skill=ci-cp1251' localhost:8787/feedback)" = 201
+          test "$(post)" = 429                                                    # FEEDBACK_RATE=4 в минуту
           docker exec fb sh -c 'cat /data/*.json' | grep -q '"skill":"ci"'
+          docker exec fb sh -c 'cat /data/*.json' | grep -q '"title":"ci: кодировка"'
           docker exec fb sh -c 'cat /data/*.json' | grep -q '"helped":\["a","b"\]'
           if docker exec fb sh -c 'cat /data/*.json' | grep -q '"ip"'; then echo "в отзыве IP"; exit 1; fi
           if docker exec fb sh -c 'cat /data/*.json' | grep -q 'vibe_api_'; then echo "ключ не вычищен"; exit 1; fi
