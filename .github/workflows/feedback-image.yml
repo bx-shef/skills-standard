@@ -52,8 +52,8 @@ jobs:
           check 403 -H 'Authorization: Bearer ci' localhost:8787/feedback.md     # снаружи закрыто и с токеном
           docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md', { headers: { authorization: 'Bearer ci' } }).then(async r => { const t = await r.text(); console.log(r.status, t.split('\n')[0]); process.exit(r.ok && t.includes('| ci |') ? 0 : 1) })"
           docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md').then(r => process.exit(r.status === 401 ? 0 : 1))"
-          # С 127.0.0.1, но через шлюз Вайбкода или прокси — это «снаружи».
-          docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md', { headers: { authorization: 'Bearer ci', 'x-vibe-request-id': '1' } }).then(r => process.exit(r.status === 403 ? 0 : 1))"
+          # С 127.0.0.1, но через прокси — это «снаружи».
+          docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md', { headers: { authorization: 'Bearer ci', 'x-forwarded-for': '203.0.113.1' } }).then(r => process.exit(r.status === 403 ? 0 : 1))"
           # Только формат тикета; запрос считается в лимит (первый post выше + этот = 2 из 3).
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"skill":"ci","issues":[]}' localhost:8787/feedback)" = 400
           # Тот же тикет формой — так шлёт навык (curl --data-urlencode, без JSON в команде).

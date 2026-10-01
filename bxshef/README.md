@@ -56,8 +56,8 @@ OpenAI-совместимый endpoint подходит. Без ключа — �
 ## feedback
 
 Агенту `bxshef` не нужен: навык отзыва (`shef-feedback`, в шаблоне — `acme-feedback`) сам
-отправляет тикет в формате обратной связи Вайбкода (`category`, `title`, `body`, `context`) обычным
-HTTP POST — адрес и формат написаны в навыке. Приёмник — `feedback/` в этом репозитории.
+отправляет тикет (`category`, `title`, `body`, `skill`, `outcome`, `helped`) одной командой
+`curl --data-urlencode …` — адрес и поля написаны в навыке. Приёмник — `feedback/` в этом репозитории.
 
 `bxshef feedback send` — то же из командной строки (собирает тикет из флагов):
 
