@@ -18,9 +18,11 @@
  *   npx bxshef feedback send --skill <имя> --outcome done|partial|failed --task "<строка>"
  *        [--helped "<что пригодилось>"]… [--issue "<missing|wrong|unclear|noise>: <текст>"]…
  *        [--agent <claude-code|codex|cursor|…>] [--version <версия навыка>] [--main <версия main>]
- *        отзыв ИИ-агента одним вызовом, без файла: POST на адрес из .bxshef.json
+ *        отзыв о навыке из командной строки, без файла: тикет в формате обратной связи
+ *        Вайбкода (category, title, body, context) — POST на адрес из .bxshef.json
  *        ({"feedback": "https://…"}), а без него — из BXSHEF_FEEDBACK_URL. --helped и --issue
  *        повторяются; при done нужен хотя бы один --helped. Похожее на секрет не уходит.
+ *        Агенту команда не нужна: навык отзыва шлёт тот же тикет сам, curl-ом.
  *   npx bxshef feedback [send] [--dir <путь>]
  *        старый путь: отзывы из файлов .bxshef/feedback/; send — отправить их и удалить.
  *
@@ -349,6 +351,23 @@ function claudeSupports(flag) {
 
 const KINDS = ['missing', 'wrong', 'unclear', 'noise'];
 const OUTCOMES = ['done', 'partial', 'failed'];
+// Вид замечания → категория тикета Вайбкода; у тикета одна категория — самого серьёзного.
+const CATEGORY = { wrong: 'BUG', unclear: 'DOCS', noise: 'DOCS', missing: 'SUGGESTION' };
+const SEVERITY = ['BUG', 'DOCS', 'SUGGESTION', 'OTHER'];
+
+/** Отзыв (skill, task, outcome, issues, helped, …) → тикет приёмника: category, title, body, context. */
+function toTicket(o) {
+  const cats = (o.issues || []).map((i) => CATEGORY[i.kind] ?? 'OTHER');
+  const category = SEVERITY.find((c) => cats.includes(c)) ?? 'OTHER';
+  const lines = [`Итог: ${o.outcome ?? '?'}.`];
+  for (const i of o.issues || []) lines.push(`[${i.kind}] ${i.text}`);
+  if (!(o.issues || []).length) lines.push('Замечаний нет.');
+  if ((o.helped || []).length) lines.push(`Помогло: ${o.helped.join('; ')}.`);
+  const context = { skill: o.skill, outcome: o.outcome };
+  for (const k of ['agent', 'version', 'main']) if (o[k] && o[k] !== '?') context[k] = o[k];
+  if ((o.helped || []).length) context.helped = o.helped;
+  return { category, title: `${o.skill}: ${o.task ?? 'задача'}`.slice(0, 200), body: lines.join('\n'), context };
+}
 
 /** Отзыв из параметров вызова: собрать, проверить, отправить одним POST. Файлов не пишет. */
 async function feedbackDirect(argv) {
@@ -376,7 +395,7 @@ async function feedbackDirect(argv) {
   const url = readConfig(projectRoot(process.cwd())).feedback;
   if (!url) { err('адрес для отзывов не задан: "feedback" в .bxshef.json или BXSHEF_FEEDBACK_URL — отзыв не отправлен'); return 1; }
   let res;
-  try { res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); }
+  try { res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(toTicket(body)) }); }
   catch (e) { err(`отзыв не отправлен: ${e.cause?.code ?? e.message}`); return 1; }
   if (!res.ok) { err(`отзыв не отправлен: ${res.status}`); return 1; }
   out(`отзыв отправлен: ${body.skill} (${body.outcome}), замечаний: ${body.issues.length}`);
@@ -409,7 +428,7 @@ async function feedback(argv) {
   let sent = 0;
   for (const it of items) {
     const { file, ...body } = it;
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(toTicket(body)) });
     if (!res.ok) { err(`  [FAIL] ${file}: ${res.status}`); continue; }
     fs.unlinkSync(path.join(dir, file)); sent++;
   }

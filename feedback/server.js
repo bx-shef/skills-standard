@@ -2,8 +2,13 @@
 /**
  * Приёмник отзывов bxshef. Без зависимостей: node:http + файлы.
  *
- *   POST /feedback        тело — JSON отзыва (как пишет навык <префикс>-feedback,
- *                         отправляет `bxshef feedback send`); ответ 201
+ *   POST /feedback        тикет в формате POST /v1/feedback Вайбкода — один формат:
+ *                         { category, title, body, context: { skill, agent, version,
+ *                         main, outcome, helped[] } }; агент шлёт его сам (curl,
+ *                         PowerShell — навык <префикс>-feedback). Ответ 201
+ *                         { success: true, data: { id, category, title, status, createdAt } }.
+ *                         Из текста вычищаются секреты, адреса, домены, почта, IP, пути и
+ *                         телефоны — до записи на диск (SCRUB ниже). Прочие поля отбрасываются.
  *   GET  /feedback        список отзывов (JSON), ?skill=имя — только по навыку
  *   GET  /feedback.md     то же, читаемо: сводка по навыкам и последние замечания
  *   GET  /health          200 ok
@@ -62,6 +67,8 @@ const MAX_BODY = 64 * 1024;
 fs.mkdirSync(DATA, { recursive: true });
 
 const json = (res, code, body, headers = {}) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff', ...headers }); res.end(JSON.stringify(body)); };
+// Ответы — как у API Вайбкода: { success, data } и { success: false, error: { code, message } }.
+const fail = (res, status, code, message, headers) => json(res, status, { success: false, error: { code, message } }, headers);
 const text = (res, code, body) => { res.writeHead(code, { 'content-type': 'text/markdown; charset=utf-8', 'x-content-type-options': 'nosniff' }); res.end(body); };
 const safe = (s) => String(s).replace(/[^a-z0-9-]/gi, '_').slice(0, 60);
 const bearer = (req, token) => {
@@ -102,7 +109,7 @@ function tick() {
   if (Date.now() - windowStart >= 60_000) { windowStart = Date.now(); posts.clear(); fails.clear(); }
 }
 const retryAfter = () => String(Math.max(1, Math.ceil((windowStart + 60_000 - Date.now()) / 1000)));
-const tooMany = (res) => json(res, 429, { error: 'слишком часто, повторите позже' }, { 'retry-after': retryAfter() });
+const tooMany = (res) => fail(res, 429, 'RATE_LIMITED', 'слишком часто, повторите позже', { 'retry-after': retryAfter() });
 function allowPost(ip) {
   tick();
   const total = (posts.get('*') || 0) + 1;
@@ -119,23 +126,73 @@ function denyRead(req, ip) {
   if (!READ_REMOTE && !isLocal(req)) return [403, 'чтение только с сервера: make read'];
   tick();
   if ((fails.get(ip) || 0) >= AUTH_FAILS || fails.size >= MAX_KEYS) return [429];
-  if (!bearer(req, READ_TOKEN)) { fails.set(ip, (fails.get(ip) || 0) + 1); return [401, 'token']; }
+  if (!bearer(req, READ_TOKEN)) { fails.set(ip, (fails.get(ip) || 0) + 1); return [401, 'нужен верный токен']; }
   return null;
 }
 
 // ─── Отзыв: только известные поля ───────────────────────────────────
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : undefined);
-function normalize(j) {
-  if (!j || typeof j !== 'object' || Array.isArray(j)) return null;
-  const skill = str(j.skill, 100);
-  if (!skill || !Array.isArray(j.issues)) return null;
-  const issues = j.issues.slice(0, 50).map((i) => ({ kind: str(i?.kind, 20), text: str(i?.text, 1000) })).filter((i) => i.text);
-  const helped = Array.isArray(j.helped) ? j.helped.slice(0, 50).map((h) => str(h, 500)).filter(Boolean) : [];
-  const out = { skill };
-  for (const k of ['version', 'agent', 'main', 'outcome']) { const v = str(j[k], 50); if (v) out[k] = v; }
-  const task = str(j.task, 300); if (task) out.task = task;
-  if (typeof j.receivedAt === 'string') out.receivedAt = j.receivedAt.slice(0, 30);
-  return { ...out, issues, helped };
+// Один формат — тикет Вайбкода (POST /v1/feedback): category, title, body, context. Навык,
+// о котором тикет, — context.skill. Из context берутся только известные поля.
+const CATEGORIES = new Set(['BUG', 'SUGGESTION', 'DOCS', 'CHAT', 'BOTS', 'OTHER']);
+const OUTCOMES = new Set(['done', 'partial', 'failed']);
+const SKILL_RE = /^[A-Za-z0-9._:-]{1,100}$/;
+const META_RE = /^[\w.@+-]{1,50}$/;
+
+// Чистка текста: агенту велено не писать в отзыв проект и секреты, но на слово не верим —
+// всё похожее заменяется пометкой ДО записи на диск. Порядок важен: сначала крупное (ключи,
+// адреса), потом мелкое (длинные строки, похожие на токен).
+const SCRUB = [
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, '[скрыто: ключ]'],
+  [/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi, '[скрыто: адрес]'],
+  [/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '[скрыто: почта]'],
+  [/\beyJ[\w-]{5,}\.[\w-]{5,}\.[\w-]{5,}/g, '[скрыто: токен]'],
+  [/\b(?:vibe_(?:api|live|app)_|sk-|sk_live_|pk_live_|rk_live_|ghp_|gho_|ghs_|ghu_|github_pat_|glpat-|xox[abpr]-|AKIA|ASIA|AIza)[\w-]{8,}/g, '[скрыто: ключ]'],
+  [/\b(?:Bearer|Basic)\s+[\w.~+/=-]{8,}/gi, '[скрыто: токен]'],
+  [/\b(pass(?:word)?|passwd|pwd|парол[а-я]*|token|токен[а-я]*|secret|секрет[а-я]*|api[_-]?key|access[_-]?key|client[_-]?secret|ключ[а-я]*|webhook)(\s*[:=]\s*)(?!\[скрыто)\S+/gi, '$1$2[скрыто]'],
+  [/\b(?:[a-z0-9-]+\.)+(?:ru|by|kz|ua|uz|su|com|net|org|io|dev|app|tech|info|biz|pro|online|site|shop|store|cloud|рф)\b/gi, '[скрыто: домен]'],
+  [/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[скрыто: IP]'],
+  [/(^|[\s"'(=])(?:~|\/(?:home|Users|root|var|srv|opt|etc|usr|tmp|www|mnt|data))\/[^\s"')]*/g, '$1[скрыто: путь]'],
+  [/\b[A-Za-z]:\\[^\s"')]+/g, '[скрыто: путь]'],
+  [/\+\d[\d\s()-]{9,}\d/g, '[скрыто: телефон]'],
+  [/\b[a-f0-9]{32,}\b/gi, '[скрыто: токен]'],
+  [/\b(?=[A-Za-z0-9+/_-]*\d)(?=[A-Za-z0-9+/_-]*[A-Za-z])[A-Za-z0-9+/_-]{40,}={0,2}/g, '[скрыто: токен]'],
+];
+function scrub(s, counter) {
+  let out = s;
+  for (const [re, to] of SCRUB) out = out.replace(re, (...m) => { counter.n++; return typeof to === 'string' ? to.replace(/\$(\d)/g, (_, d) => m[d] ?? '') : to; });
+  return out;
+}
+
+// Ошибки формата — списком, как VALIDATION_ERROR у Вайбкода. stored — файл с диска: длины уже
+// проверены при приёме, а чистка могла их изменить.
+function normalize(j, stored = false) {
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return { errors: ['тело — JSON-объект'] };
+  const errors = [];
+  const n = { n: 0 };
+  const category = String(j.category ?? '').toUpperCase();
+  if (!CATEGORIES.has(category)) errors.push(`category — одно из ${[...CATEGORIES].join(', ')}`);
+  const title = typeof j.title === 'string' ? j.title.trim() : '';
+  if (!stored && (title.length < 3 || title.length > 200)) errors.push('title — 3–200 символов');
+  const body = typeof j.body === 'string' ? j.body.trim() : '';
+  if (!stored && (body.length < 10 || body.length > 20000)) errors.push('body — 10–20000 символов');
+  const ctx = j.context && typeof j.context === 'object' && !Array.isArray(j.context) ? j.context : null;
+  if (!ctx) errors.push('context — объект, в нём skill');
+  else if (!stored && JSON.stringify(ctx).length > 10240) errors.push('context — до 10 КБ');
+  const skill = ctx && typeof ctx.skill === 'string' && SKILL_RE.test(ctx.skill) ? ctx.skill : null;
+  if (ctx && !skill) errors.push('context.skill — имя навыка: буквы, цифры, . _ : -');
+  if (errors.length) return { errors };
+
+  const context = { skill };
+  for (const k of ['agent', 'version', 'main']) if (typeof ctx[k] === 'string' && META_RE.test(ctx[k])) context[k] = ctx[k];
+  if (OUTCOMES.has(ctx.outcome)) context.outcome = ctx.outcome;
+  const helped = Array.isArray(ctx.helped) ? ctx.helped.slice(0, 20).map((h) => str(h, 500)).filter(Boolean).map((h) => scrub(h, n).trim()) : [];
+  if (helped.length) context.helped = helped;
+  const it = { category, title: scrub(title.slice(0, 200), n), body: scrub(body.slice(0, 20000), n), context };
+  const redacted = n.n + (Number.isInteger(j.redacted) && j.redacted > 0 ? j.redacted : 0);
+  if (redacted) it.redacted = redacted;
+  if (typeof j.receivedAt === 'string') it.receivedAt = j.receivedAt.slice(0, 30);
+  return { it };
 }
 
 // ─── Хранилище ──────────────────────────────────────────────────────
@@ -162,7 +219,7 @@ function sweep() {
 function readAll() {
   return fs.readdirSync(DATA).filter((f) => f.endsWith('.json')).sort().map((f) => {
     let it;
-    try { it = normalize(JSON.parse(fs.readFileSync(path.join(DATA, f), 'utf8'))); } catch { return null; }
+    try { it = normalize(JSON.parse(fs.readFileSync(path.join(DATA, f), 'utf8')), true).it; } catch { return null; }
     return it && { ...it, file: f };
   }).filter(Boolean);
 }
@@ -171,71 +228,77 @@ function readAll() {
 const clean = (s) => String(s ?? '?')
   .replace(/[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g, ' ')
   .replace(/[|`*_[\]<>!\\]/g, '\\$&');
+const CAT_COLS = ['BUG', 'DOCS', 'SUGGESTION', 'OTHER'];
 function summary(items) {
   const by = new Map();
   for (const it of items) {
-    const s = by.get(it.skill) || { n: 0, issues: 0, helped: 0, last: '' };
-    s.n++; s.issues += it.issues.length; s.helped += it.helped.length; s.last = it.file.slice(0, 16);
-    by.set(it.skill, s);
+    const k = it.context.skill;
+    const s = by.get(k) || { n: 0, BUG: 0, DOCS: 0, SUGGESTION: 0, OTHER: 0, helped: 0, last: '' };
+    s.n++; s[CAT_COLS.includes(it.category) ? it.category : 'OTHER']++;
+    s.helped += (it.context.helped || []).length; s.last = it.file.slice(0, 16);
+    by.set(k, s);
   }
-  let md = `# Отзывы: ${items.length}\n\n| навык | отзывов | замечаний | helped | последний |\n|---|---|---|---|---|\n`;
-  for (const [k, s] of [...by].sort((a, b) => b[1].n - a[1].n)) md += `| ${clean(k)} | ${s.n} | ${s.issues} | ${s.helped} | ${s.last} |\n`;
-  md += `\n## Последние замечания\n\n`;
-  for (const it of items.slice(-30).reverse()) for (const i of it.issues) md += `- **${clean(it.skill)}**@${clean(it.version)} [${clean(i.kind)}] ${clean(i.text)}\n`;
+  let md = `# Отзывы: ${items.length}\n\n| навык | тикетов | BUG | DOCS | SUGGESTION | OTHER | helped | последний |\n|---|---|---|---|---|---|---|---|\n`;
+  for (const [k, s] of [...by].sort((a, b) => b[1].n - a[1].n)) md += `| ${clean(k)} | ${s.n} | ${s.BUG} | ${s.DOCS} | ${s.SUGGESTION} | ${s.OTHER} | ${s.helped} | ${s.last} |\n`;
+  md += `\n## Последние тикеты\n\n`;
+  for (const it of items.slice(-30).reverse()) {
+    md += `- **${clean(it.context.skill)}**@${clean(it.context.version)} [${it.category}] ${clean(it.title)} — ${clean(it.body.slice(0, 300))}\n`;
+  }
   return md;
 }
 
 // ─── HTTP ───────────────────────────────────────────────────────────
 function receive(req, res, ip) {
   if (!allowPost(ip)) return tooMany(res);
-  if (TOKEN && !bearer(req, TOKEN)) return json(res, 401, { error: 'token' });
+  if (TOKEN && !bearer(req, TOKEN)) return fail(res, 401, 'UNAUTHORIZED', 'нужен токен');
   const chunks = []; let size = 0; let over = false;
   req.on('data', (c) => {
     if (over) return;
     size += c.length;
-    if (size > MAX_BODY) { over = true; json(res, 413, { error: 'too large' }, { connection: 'close' }); req.resume(); return; }
+    if (size > MAX_BODY) { over = true; fail(res, 413, 'TOO_LARGE', 'отзыв больше 64 КБ', { connection: 'close' }); req.resume(); return; }
     chunks.push(c);
   });
   req.on('end', () => {
     if (over) return;
     try {
-      let j; try { j = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(res, 400, { error: 'json' }); }
-      const it = normalize(j);
-      if (!it) return json(res, 400, { error: 'skill (строка) и issues (массив) обязательны' });
-      if (stored.files >= MAX_FILES || stored.bytes >= MAX_BYTES) return json(res, 507, { error: 'хранилище заполнено' });
-      const body = JSON.stringify({ ...it, receivedAt: new Date().toISOString() });
-      const name = `${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}-${safe(it.skill)}-${crypto.randomBytes(3).toString('hex')}.json`;
+      let j; try { j = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return fail(res, 400, 'VALIDATION_ERROR', 'тело — не JSON'); }
+      const { it, errors } = normalize(j);
+      if (errors) return fail(res, 400, 'VALIDATION_ERROR', errors.join('; '));
+      if (stored.files >= MAX_FILES || stored.bytes >= MAX_BYTES) return fail(res, 507, 'STORAGE_FULL', 'хранилище заполнено');
+      const createdAt = new Date().toISOString();
+      const body = JSON.stringify({ ...it, receivedAt: createdAt });
+      const name = `${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}-${safe(it.context.skill)}-${crypto.randomBytes(3).toString('hex')}.json`;
       fs.writeFileSync(path.join(DATA, name), body);
       stored.files++; stored.bytes += Buffer.byteLength(body);
-      json(res, 201, { ok: true, id: name });
+      json(res, 201, { success: true, data: { id: name, category: it.category, title: it.title, status: 'NEW', createdAt } });
     } catch (e) {
       console.error(`bxshef feedback: запись не удалась: ${e.code || e.message}`);
-      if (!res.headersSent) json(res, 500, { error: 'не сохранено' });
+      if (!res.headersSent) fail(res, 500, 'INTERNAL_ERROR', 'не сохранено');
     }
   });
 }
 
 function handle(req, res) {
   let url;
-  try { url = new URL(req.url, 'http://x'); } catch { return json(res, 400, { error: 'bad url' }); }
+  try { url = new URL(req.url, 'http://x'); } catch { return fail(res, 400, 'BAD_URL', 'кривой адрес запроса'); }
   const ip = clientIp(req);
   if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true });
   if (req.method === 'POST' && url.pathname === '/feedback') return receive(req, res, ip);
   if (req.method === 'GET' && (url.pathname === '/feedback' || url.pathname === '/feedback.md')) {
     const deny = denyRead(req, ip);
-    if (deny) return deny[0] === 429 ? tooMany(res) : json(res, deny[0], { error: deny[1] });
+    if (deny) return deny[0] === 429 ? tooMany(res) : fail(res, deny[0], deny[0] === 401 ? 'UNAUTHORIZED' : 'FORBIDDEN', deny[1]);
     const items = readAll();
     if (url.pathname === '/feedback.md') return text(res, 200, summary(items));
     const skill = url.searchParams.get('skill');
-    return json(res, 200, items.filter((it) => !skill || it.skill === skill));
+    return json(res, 200, items.filter((it) => !skill || it.context.skill === skill));
   }
-  json(res, 404, { error: 'not found' });
+  fail(res, 404, 'NOT_FOUND', 'нет такого адреса');
 }
 
 const server = http.createServer((req, res) => {
   try { handle(req, res); } catch (e) {
     console.error(`bxshef feedback: ${req.method} ${req.url}: ${e.code || e.message}`);
-    if (!res.headersSent) json(res, 500, { error: 'internal' }); else res.destroy();
+    if (!res.headersSent) fail(res, 500, 'INTERNAL_ERROR', 'внутренняя ошибка'); else res.destroy();
   }
 });
 server.on('error', (e) => { console.error(`bxshef feedback: не запустился на :${PORT}: ${e.code || e.message}`); process.exit(1); });

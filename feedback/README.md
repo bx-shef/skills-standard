@@ -1,6 +1,7 @@
 # Приёмник отзывов
 
-Куда ИИ-агенты сами отправляют отзывы о навыках (`bxshef feedback send --skill …`). Один файл на Node без
+Куда ИИ-агенты сами отправляют отзывы о навыках — обычным HTTP POST с JSON по адресу из навыка
+отзыва (`<префикс>-feedback`), без bxshef и конфигов. Один файл на Node без
 зависимостей, хранение — JSON-файлы в каталоге, Docker.
 
 ```bash
@@ -58,15 +59,39 @@ make read                        # сводка отзывов
 `make prod-redeploy`. Новые версии compose-файла и Makefile — `make compose-update`,
 `make self-update`. Копия отзывов — `make backup` (в `./backups`), читать — `make read`.
 
-## Проекты
+## Подключить навыки
 
-Адрес приёмника — `https://<DOMAIN>/feedback`, например `https://feedback.example.org/feedback`.
-В проектах, откуда шлют отзывы, в корне `.bxshef.json` (или переменная
-окружения `BXSHEF_FEEDBACK_URL` у агента):
+Адрес приёмника — `https://<DOMAIN>/feedback`. Его вписывают **в сам навык отзыва** набора
+(раздел «Отправить» в `template/.agents/skills/acme-feedback/SKILL.md` — заменить
+`feedback.example.org`). Навыки ставятся штатно (`npx skills add <owner/repo>`), и агент
+отправляет отзыв сам — `curl` или PowerShell; в проектах ничего ставить и настраивать не нужно.
 
-```json
-{ "feedback": "https://feedback.example.org/feedback" }
-```
+Формат один — тикет как у `POST /v1/feedback` Вайбкода: плоский JSON, ответ
+`201 {"success": true, "data": {"id", "category", "title", "status": "NEW", "createdAt"}}`, ошибки
+`{"success": false, "error": {"code", "message"}}` (`VALIDATION_ERROR` перечисляет поля).
+
+| Поле | Обяз. | Что |
+|---|:-:|---|
+| `category` | да | `BUG`, `SUGGESTION`, `DOCS`, `CHAT`, `BOTS`, `OTHER` (регистр не важен) |
+| `title` | да | 3–200 символов |
+| `body` | да | 10–20000 символов |
+| `context` | да | объект до 10 КБ; `skill` — обязательно (имя навыка) |
+| `context.outcome` | нет | `done`, `partial`, `failed` |
+| `context.helped` | нет | массив строк — что пригодилось (до 20) |
+| `context.agent`, `.version`, `.main` | нет | короткие строки |
+
+Прочие поля тела и `context` отбрасываются. Для навыков категории значат: `BUG` — навык
+расходится с кодом, `DOCS` — неясно или лишнее, `SUGGESTION` — не хватило, `OTHER` — замечаний нет.
+
+**Чистка.** Агенту велено не писать в отзыв проект и секреты, но приёмник на слово не верит: в
+`title`, `body` и `helped` до записи на диск заменяются пометкой `[скрыто: …]` ключи и токены
+(`vibe_api_…`, `sk-…`, `ghp_…`, JWT, `Bearer …`, AWS, приватные ключи, `password=…`/`token: …`,
+длинные hex/base64), адреса (URL), домены, почта, IP, пути (`/home/…`, `C:\…`) и телефоны.
+Число замен — в поле `redacted` отзыва. Имена классов, методов, событий и файлы вида
+`lang/ru/install.php` остаются.
+
+`bxshef feedback send` шлёт тот же тикет (адрес — `.bxshef.json` или `BXSHEF_FEEDBACK_URL`),
+но навыку он не нужен.
 
 ## Кто читает
 
@@ -100,11 +125,8 @@ curl -s -H "Authorization: Bearer $FEEDBACK_READ_TOKEN" https://feedback.example
   за nginx-proxy — последний в `X-Forwarded-For`, держится только в памяти для счётчика и на
   диск не пишется. `TRUST_PROXY=1` верит заголовку от всей частной сети; строже —
   `TRUST_PROXY=<имя контейнера nginx-proxy>`: тогда соседи по `proxy-net` не подделают адрес.
-- **Что принимается**: JSON с обязательными `skill` (строка) и `issues` (массив), до 64 КБ.
-  `bxshef feedback send` сам не пропускает отзывы, похожие на секрет. Сохраняются только
-  известные поля отзыва (`skill`, `version`, `agent`, `main`, `task`, `outcome`,
-  `issues[].kind/text`, `helped`) строками ограниченной длины и время приёма — ни IP, ни
-  заголовков, ни посторонних полей.
+- **Что принимается**: тикет до 64 КБ (поля — «Подключить навыки»). Сохраняются только
+  известные поля, вычищенные, и время приёма — ни IP, ни заголовков, ни посторонних полей.
 - **Место**: не больше `FEEDBACK_MAX_FILES` (20000) отзывов и `FEEDBACK_MAX_MB` (200);
   сверх — 507, пока старые не уйдут по сроку. Диск сервера общий — приёмник его не забьёт.
 - **Срок**: отзывы старше `FEEDBACK_RETENTION_DAYS` (3) дней удаляются — при старте и раз в
