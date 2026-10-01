@@ -1,0 +1,42 @@
+# CI репозитория МОДУЛЯ: навыки автора не расходятся с кодом (STANDARD п. 11).
+# Положить в .github/workflows/skills.yml модуля, заменить <…>; .check/ — в .gitignore.
+#
+# Навыки лежат не здесь, а в репозитории навыков. Проверка: каждый класс \Vendor\…, который
+# навык называет, объявлен в коде этого модуля из PR или соседних модулей со свежего main —
+# без соседей их классы с общим корнем будут «не найдены». eval-key не передаётся: выбор
+# навыка проверяет репозиторий навыков, здесь — только связь с кодом.
+name: skills
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  skills:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Этот модуль (из PR)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: .check/modules/<vendor.module>
+          persist-credentials: false
+
+      - name: Навыки автора
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: <owner>/<skills-repo>
+          path: .check/skills
+          persist-credentials: false
+
+      # Соседние модули, на классы которых ссылаются навыки, — по шагу на модуль.
+      - name: Соседний модуль <vendor.other>
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: <owner>/<other-module-repo>
+          path: .check/modules/<vendor.other>
+          persist-credentials: false
+
+      - uses: bx-shef/skills-standard/action@v1
+        with:
+          dir: .check/skills/skills
+          code: .check/modules
