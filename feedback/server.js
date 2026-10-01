@@ -278,8 +278,10 @@ function receive(req, res, ip) {
     try {
       const raw = Buffer.concat(chunks).toString('utf8');
       let j;
-      if (/^application\/x-www-form-urlencoded/i.test(req.headers['content-type'] || '')) j = fromForm(raw);
-      else { try { j = JSON.parse(raw); } catch { return fail(res, 400, 'VALIDATION_ERROR', 'тело — не JSON и не форма'); } }
+      // JSON — по содержимому, а не по заголовку: `curl -d '{…}'` шлёт JSON с типом формы.
+      if (raw.trimStart().startsWith('{')) { try { j = JSON.parse(raw); } catch { return fail(res, 400, 'VALIDATION_ERROR', 'тело — не JSON'); } }
+      else if (/^application\/x-www-form-urlencoded/i.test(req.headers['content-type'] || '')) j = fromForm(raw);
+      else return fail(res, 400, 'VALIDATION_ERROR', 'тело — JSON или форма');
       const { it, errors } = normalize(j);
       if (errors) return fail(res, 400, 'VALIDATION_ERROR', errors.join('; '));
       if (stored.files >= MAX_FILES || stored.bytes >= MAX_BYTES) return fail(res, 507, 'STORAGE_FULL', 'хранилище заполнено');
