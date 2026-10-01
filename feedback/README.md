@@ -67,7 +67,7 @@ make read                        # сводка отзывов
 отправляет отзыв сам — одной командой `curl --data-urlencode …`; в проектах ничего ставить и
 настраивать не нужно.
 
-Формат один — тикет как у `POST /v1/feedback` Вайбкода: плоский JSON, ответ
+Тикет — поля ниже, формой (так шлёт навык) или JSON; ответ
 `201 {"success": true, "data": {"id", "category", "title", "status": "NEW", "createdAt"}}`, ошибки
 `{"success": false, "error": {"code", "message"}}` (`VALIDATION_ERROR` перечисляет поля).
 

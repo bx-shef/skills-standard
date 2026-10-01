@@ -2,7 +2,7 @@
 /**
  * Приёмник отзывов bxshef. Без зависимостей: node:http + файлы.
  *
- *   POST /feedback        тикет в формате POST /v1/feedback Вайбкода — один формат:
+ *   POST /feedback        тикет — JSON:
  *                         { category, title, body, context: { skill, agent, version,
  *                         main, outcome, helped[] } }; агент шлёт его сам (curl,
  *                         PowerShell — навык <префикс>-feedback). То же формой
