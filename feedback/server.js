@@ -202,12 +202,36 @@ function normalize(j, stored = false) {
 // команде: проверки оболочки у агентов (Claude Code) не пропускают команду с «{"» внутри. Поля
 // плоско: category, title, body, skill, outcome, agent, version, main; helped — повторяется.
 function fromForm(raw) {
-  const f = new URLSearchParams(raw);
-  const v = (k) => (f.has(k) ? f.get(k) : undefined);
+  const f = new Map();
+  for (const pair of raw.split('&')) {
+    if (!pair) continue;
+    const i = pair.indexOf('=');
+    const k = formPart(i < 0 ? pair : pair.slice(0, i));
+    const v = i < 0 ? '' : formPart(pair.slice(i + 1));
+    if (!f.has(k)) f.set(k, []);
+    f.get(k).push(v);
+  }
+  const v = (k) => (f.has(k) ? f.get(k)[0] : undefined);
   const context = { skill: v('skill'), outcome: v('outcome'), agent: v('agent'), version: v('version'), main: v('main') };
-  const helped = f.getAll('helped');
-  if (helped.length) context.helped = helped;
+  if (f.has('helped')) context.helped = f.get('helped');
   return { category: v('category'), title: v('title'), body: v('body'), context };
+}
+
+// Значение формы — байты после %XX. curl.exe на Windows кодирует аргументы в кодировке системы,
+// а не в UTF-8: на русской Windows это cp1251, и кириллица как UTF-8 превращалась в «����».
+// Поэтому: строго UTF-8, а не вышло — windows-1251.
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
+const CP1251 = new TextDecoder('windows-1251');
+function formPart(s) {
+  const bytes = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '+') bytes.push(0x20);
+    else if (c === '%' && /^[0-9a-fA-F]{2}$/.test(s.slice(i + 1, i + 3))) { bytes.push(parseInt(s.slice(i + 1, i + 3), 16)); i += 2; }
+    else for (const b of Buffer.from(c, 'utf8')) bytes.push(b);
+  }
+  const buf = Buffer.from(bytes);
+  try { return UTF8.decode(buf); } catch { return CP1251.decode(buf); }
 }
 
 // ─── Хранилище ──────────────────────────────────────────────────────
