@@ -37,9 +37,9 @@ BXSHEF_EVAL_KEY=… npx bxshef eval --dir .agents/skills --repeat 3
 
 ## Эталон
 
-[bx-shef/skills](https://github.com/bx-shef/skills) — 16 навыков к модулям
-shef.options, shef.problems, shef.insync, собранные по этому стандарту. На них
-стандарт и проверялся.
+[bx-shef/skills](https://github.com/bx-shef/skills) — навыки к модулям
+shef.options, shef.problems, shef.insync, собранные по этому стандарту; переезжают
+туда из модулей по одному.
 
 ## Что проверяет `bxshef`
 
