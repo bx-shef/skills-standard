@@ -14,7 +14,7 @@ Action), `template/` (заготовка репозитория навыков),
 ```bash
 cd bxshef && npm pack && cd ..
 npm i --no-save ./bxshef/bxshef-*.tgz
-npx bxshef lint --dir template/.agents/skills          # заготовка проходит свой же lint
+npx bxshef lint --dir template/skills                  # заготовка проходит свой же lint
 ```
 
 Выпуск `bxshef` автоматический: коммиты в main — conventional (`feat:`,

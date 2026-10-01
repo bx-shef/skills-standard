@@ -25,8 +25,8 @@ cp -r template/ ../acme-skills && cd ../acme-skills
 #    переименовать acme-* в свой префикс, написать первый навык по STANDARD.md
 
 # 2. проверить локально
-npx bxshef lint --dir .agents/skills --code ../acme.module
-BXSHEF_EVAL_KEY=… npx bxshef eval --dir .agents/skills --repeat 3
+npx bxshef lint --dir skills --code ../acme.module
+BXSHEF_EVAL_KEY=… npx bxshef eval --dir skills --repeat 3
 
 # 3. в CI — уже есть: .github/workflows/skills.yml зовёт bx-shef/skills-standard/action@v1
 ```

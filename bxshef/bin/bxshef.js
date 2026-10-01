@@ -27,7 +27,8 @@
  *   npx bxshef feedback [send] [--dir <путь>]
  *        старый путь: отзывы из файлов .bxshef/feedback/; send — отправить их и удалить.
  *
- * Где искать навыки (--dir не задан): .agents/skills, затем .claude/skills от текущего каталога
+ * Где искать навыки (--dir не задан): .agents/skills, затем .claude/skills (проект), затем skills/
+ * с папками навыков (репозиторий навыков, STANDARD п. 12) от текущего каталога
  * вверх; либо текущий каталог, если в нём лежат папки с SKILL.md (репозиторий навыков).
  *
  * evals/selection.json: [{ "input": "…", "expected": "<имя>|<none>|[<имя>, <имя>]", "notes": "…" }]
@@ -40,7 +41,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const CONFIG = '.bxshef.json';
-const SKILL_DIRS = ['.agents/skills', '.claude/skills'];
+const SKILL_DIRS = ['.agents/skills', '.claude/skills', 'skills'];
 
 class Fail extends Error {}
 const out = (s) => process.stdout.write(s + '\n');
@@ -59,13 +60,19 @@ function skillsRoot(argv) {
   }
   let dir = process.cwd();
   for (;;) {
-    for (const sd of SKILL_DIRS) if (fs.existsSync(path.join(dir, sd))) return path.join(dir, sd);
+    for (const sd of SKILL_DIRS) {
+      const p = path.join(dir, sd);
+      if (!fs.existsSync(p)) continue;
+      // skills/ — частое имя каталога; навыки там, только если внутри папки с SKILL.md.
+      if (sd === 'skills' && !subdirs(p).some((d) => fs.existsSync(path.join(d, 'SKILL.md')))) continue;
+      return p;
+    }
     const up = path.dirname(dir);
     if (up === dir) break;
     dir = up;
   }
   if (subdirs(process.cwd()).some((d) => fs.existsSync(path.join(d, 'SKILL.md')))) return process.cwd();
-  throw new Fail('навыки не найдены: нет .agents/skills или .claude/skills выше по дереву; укажите --dir');
+  throw new Fail('навыки не найдены: нет .agents/skills, .claude/skills или skills/ выше по дереву; укажите --dir');
 }
 
 /** Корень проекта для .bxshef.json и .bxshef/feedback: от каталога навыков вверх до конфига, иначе cwd. */
@@ -462,12 +469,13 @@ function usage() {
 
 const cmd = process.argv[2];
 const rest = process.argv.slice(3);
-const finish = (p) => Promise.resolve(p).then((c) => process.exit(c)).catch((e) => {
+// Команда — функцией: синхронный throw (lint не async) тоже должен стать «[FAIL] …», а не стеком.
+const finish = (run) => Promise.resolve().then(run).then((c) => process.exit(c)).catch((e) => {
   if (e instanceof Fail) { err('[FAIL] ' + e.message); process.exit(2); }
   throw e;
 });
-if (cmd === 'lint') finish(lint(rest));
-else if (cmd === 'eval') finish(evaluate(rest));
-else if (cmd === 'feedback') finish(feedback(rest));
+if (cmd === 'lint') finish(() => lint(rest));
+else if (cmd === 'eval') finish(() => evaluate(rest));
+else if (cmd === 'feedback') finish(() => feedback(rest));
 else if (cmd === 'sync' || cmd === 'check' || cmd === 'list') { err(`«${cmd}» больше нет: навыки ставит npx skills add <owner/repo> (vercel-labs/skills); bxshef — lint, eval, feedback`); process.exit(2); }
 else usage();

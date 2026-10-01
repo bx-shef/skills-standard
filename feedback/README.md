@@ -62,7 +62,7 @@ make read                        # сводка отзывов
 ## Подключить навыки
 
 Адрес приёмника — `https://<DOMAIN>/feedback`. Его вписывают **в сам навык отзыва** набора
-(раздел «Отправить» в `template/.agents/skills/acme-feedback/SKILL.md` — заменить
+(раздел «Отправить» в `template/skills/acme-feedback/SKILL.md` — заменить
 `feedback.example.org`). Навыки ставятся штатно (`npx skills add <owner/repo>`), и агент
 отправляет отзыв сам — `curl` или PowerShell; в проектах ничего ставить и настраивать не нужно.
 
