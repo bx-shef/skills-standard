@@ -19,11 +19,9 @@
  *   - токен: заголовок Authorization: Bearer <FEEDBACK_READ_TOKEN>. Не задан — чтение
  *     закрыто совсем (403);
  *   - откуда: по умолчанию только с самого сервера — соединение с 127.0.0.1 без следов
- *     прокси (`make read`, на Вайбкоде — vibecode.sh read). Снаружи — только если
+ *     прокси (`make read`). Снаружи — только если
  *     FEEDBACK_READ_REMOTE=1, иначе 403 даже с верным токеном: утёкший токен сам по себе
- *     отзывы не открывает. «Следы прокси» — X-Forwarded-For, Forwarded, X-Real-IP или
- *     X-Vibe-Request-Id: туннель Вайбкода приходит к приложению с 127.0.0.1, и отличить его
- *     от своего запроса можно только по заголовку, который шлюз ставит всегда.
+ *     отзывы не открывает. «Следы прокси» — X-Forwarded-For, Forwarded или X-Real-IP.
  * Неверный токен — не больше FEEDBACK_AUTH_FAILS (5) попыток в минуту с адреса, дальше 429.
  *
  * Отправка: не больше FEEDBACK_RATE (20) в минуту с адреса и FEEDBACK_RATE_TOTAL (300)
@@ -70,7 +68,7 @@ const MAX_BODY = 64 * 1024;
 fs.mkdirSync(DATA, { recursive: true });
 
 const json = (res, code, body, headers = {}) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff', ...headers }); res.end(JSON.stringify(body)); };
-// Ответы — как у API Вайбкода: { success, data } и { success: false, error: { code, message } }.
+// Ответы: { success, data } и { success: false, error: { code, message } }.
 const fail = (res, status, code, message, headers) => json(res, status, { success: false, error: { code, message } }, headers);
 const text = (res, code, body) => { res.writeHead(code, { 'content-type': 'text/markdown; charset=utf-8', 'x-content-type-options': 'nosniff' }); res.end(body); };
 const safe = (s) => String(s).replace(/[^a-z0-9-]/gi, '_').slice(0, 60);
@@ -83,7 +81,7 @@ const bearer = (req, token) => {
 // ─── Адрес клиента ──────────────────────────────────────────────────
 const bare = (ip) => String(ip || '').replace(/^::ffff:/, '');
 const isLoopback = (ip) => ip === '127.0.0.1' || ip === '::1';
-const PROXY_HEADERS = ['x-forwarded-for', 'forwarded', 'x-real-ip', 'x-vibe-request-id'];
+const PROXY_HEADERS = ['x-forwarded-for', 'forwarded', 'x-real-ip'];
 const isLocal = (req) => isLoopback(bare(req.socket.remoteAddress)) && !PROXY_HEADERS.some((h) => h in req.headers);
 const isPrivate = (ip) => isLoopback(ip) || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|f[cd])/i.test(ip);
 let proxyAddrs = new Set();
@@ -135,7 +133,7 @@ function denyRead(req, ip) {
 
 // ─── Отзыв: только известные поля ───────────────────────────────────
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : undefined);
-// Один формат — тикет Вайбкода (POST /v1/feedback): category, title, body, context. Навык,
+// Тикет: category, title, body, context (JSON) или те же поля плоско формой. Навык,
 // о котором тикет, — context.skill. Из context берутся только известные поля.
 const CATEGORIES = new Set(['BUG', 'SUGGESTION', 'DOCS', 'CHAT', 'BOTS', 'OTHER']);
 const OUTCOMES = new Set(['done', 'partial', 'failed']);
@@ -167,7 +165,7 @@ function scrub(s, counter) {
   return out;
 }
 
-// Ошибки формата — списком, как VALIDATION_ERROR у Вайбкода. stored — файл с диска: длины уже
+// Ошибки формата — списком (VALIDATION_ERROR). stored — файл с диска: длины уже
 // проверены при приёме, а чистка могла их изменить.
 function normalize(j, stored = false) {
   if (!j || typeof j !== 'object' || Array.isArray(j)) return { errors: ['тело — JSON-объект'] };

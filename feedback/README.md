@@ -19,8 +19,6 @@ nginx-proxy + acme-companion (TLS Let's Encrypt) в docker-сети `proxy-net` 
 Приёмник отдаёт прокси `VIRTUAL_HOST` / `LETSENCRYPT_HOST` — сертификат выпускается и
 продлевается сам, своего nginx и certbot нет.
 
-Второй вариант — без своего сервера, на Битрикс24 Вайбкод Black Hole: [VIBECODE.md](VIBECODE.md).
-
 ### Один раз на хост
 
 Если на сервере уже есть client-bank, invoice-from-tasks или currency-converter — всё стоит:

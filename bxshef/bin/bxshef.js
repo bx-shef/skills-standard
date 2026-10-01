@@ -18,8 +18,8 @@
  *   npx bxshef feedback send --skill <имя> --outcome done|partial|failed --task "<строка>"
  *        [--helped "<что пригодилось>"]… [--issue "<missing|wrong|unclear|noise>: <текст>"]…
  *        [--agent <claude-code|codex|cursor|…>] [--version <версия навыка>] [--main <версия main>]
- *        отзыв о навыке из командной строки, без файла: тикет в формате обратной связи
- *        Вайбкода (category, title, body, context) — POST на адрес из .bxshef.json
+ *        отзыв о навыке из командной строки, без файла: тикет (category, title, body,
+ *        context) — POST на адрес из .bxshef.json
  *        ({"feedback": "https://…"}), а без него — из BXSHEF_FEEDBACK_URL. --helped и --issue
  *        повторяются; при done нужен хотя бы один --helped. Похожее на секрет не уходит.
  *        Агенту команда не нужна: навык отзыва шлёт тот же тикет сам, curl-ом.
@@ -359,7 +359,7 @@ function claudeSupports(flag) {
 
 const KINDS = ['missing', 'wrong', 'unclear', 'noise'];
 const OUTCOMES = ['done', 'partial', 'failed'];
-// Вид замечания → категория тикета Вайбкода; у тикета одна категория — самого серьёзного.
+// Вид замечания → категория тикета; у тикета одна категория — самого серьёзного.
 const CATEGORY = { wrong: 'BUG', unclear: 'DOCS', noise: 'DOCS', missing: 'SUGGESTION' };
 const SEVERITY = ['BUG', 'DOCS', 'SUGGESTION', 'OTHER'];
 

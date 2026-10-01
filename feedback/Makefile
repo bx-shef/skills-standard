@@ -8,7 +8,7 @@
 
 .DEFAULT_GOAL := help
 .PHONY: help build-local prod-up prod-down prod-pull prod-redeploy logs ps health read doctor \
-        backup compose-update self-update vibe-deploy vibe-read vibe-logs vibe-status
+        backup compose-update self-update
 
 override cli = $(if $(filter command line,$(origin $(1))),$(value $(1)),$(2))
 unexport REF CONFIRM SKILL JSON
@@ -179,27 +179,6 @@ self-update:
 	b="./Makefile.bak-$$(date +%Y%m%d-%H%M%S)"; \
 	cp -p Makefile "$$b" && chmod --reference=Makefile "$$t" && mv "$$t" Makefile \
 	  && echo "[make] Makefile обновлён из $$U_REF, копия прежнего: $$b" && make --no-print-directory help
-
-# ─── Вайбкод Black Hole (из каталога feedback/ репозитория; VIBECODE.md) ────
-# VIBE_KEY — из окружения оператора; ENV_JSON для vibe-deploy — тоже.
-
-## Выложить server.js на Вайбкод (VIBE_CREATE=1 — создать сервер, платно)
-vibe-deploy:
-	./vibecode.sh deploy
-
-## Сводка отзывов с Вайбкода (JSON=1, SKILL=<имя> — как у make read)
-vibe-read: export V_SKILL = $(call cli,SKILL,)
-vibe-read: export V_JSON = $(call cli,JSON,)
-vibe-read:
-	@r=; [ "$$V_JSON" = 1 ] && r=json; SKILL="$$V_SKILL" READ="$$r" ./vibecode.sh read
-
-## Журнал приложения на Вайбкоде
-vibe-logs:
-	./vibecode.sh logs
-
-## Состояние сервера на Вайбкоде: статус, адрес, доступ, авто-сон
-vibe-status:
-	./vibecode.sh status
 
 ## Список целей
 help:
