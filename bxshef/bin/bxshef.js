@@ -23,6 +23,7 @@
  *        ({"feedback": "https://…"}), а без него — из BXSHEF_FEEDBACK_URL. --helped и --issue
  *        повторяются; при done нужен хотя бы один --helped. Похожее на секрет не уходит.
  *        Агенту команда не нужна: навык отзыва шлёт тот же тикет сам, curl-ом.
+ *        Токен отправки (FEEDBACK_TOKEN приёмника) — только из окружения: BXSHEF_FEEDBACK_TOKEN.
  *   npx bxshef feedback [send] [--dir <путь>]
  *        старый путь: отзывы из файлов .bxshef/feedback/; send — отправить их и удалить.
  *
@@ -355,6 +356,22 @@ const OUTCOMES = ['done', 'partial', 'failed'];
 const CATEGORY = { wrong: 'BUG', unclear: 'DOCS', noise: 'DOCS', missing: 'SUGGESTION' };
 const SEVERITY = ['BUG', 'DOCS', 'SUGGESTION', 'OTHER'];
 
+/** POST тикета. Токен — только из окружения: .bxshef.json коммитят в проект, токен стал бы публичным. */
+function postTicket(url, ticket) {
+  const headers = { 'content-type': 'application/json' };
+  if (process.env.BXSHEF_FEEDBACK_TOKEN) headers.authorization = `Bearer ${process.env.BXSHEF_FEEDBACK_TOKEN}`;
+  return fetch(url, { method: 'POST', headers, body: JSON.stringify(ticket) });
+}
+
+/** Почему приёмник не принял — по-человечески: 401 — токен, 429 — подождать, 400 — что не так. */
+async function whyRejected(res) {
+  if (res.status === 401) return `401 — токен не принят: задайте BXSHEF_FEEDBACK_TOKEN${process.env.BXSHEF_FEEDBACK_TOKEN ? ' верный' : ''}`;
+  if (res.status === 429) return `429 — приёмник просит подождать ${res.headers.get('retry-after') ?? '?'} с`;
+  let msg = '';
+  try { msg = (await res.json())?.error?.message ?? ''; } catch { /* не JSON */ }
+  return msg ? `${res.status} — ${msg}` : String(res.status);
+}
+
 /** Отзыв (skill, task, outcome, issues, helped, …) → тикет приёмника: category, title, body, context. */
 function toTicket(o) {
   const cats = (o.issues || []).map((i) => CATEGORY[i.kind] ?? 'OTHER');
@@ -395,9 +412,9 @@ async function feedbackDirect(argv) {
   const url = readConfig(projectRoot(process.cwd())).feedback;
   if (!url) { err('адрес для отзывов не задан: "feedback" в .bxshef.json или BXSHEF_FEEDBACK_URL — отзыв не отправлен'); return 1; }
   let res;
-  try { res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(toTicket(body)) }); }
+  try { res = await postTicket(url, toTicket(body)); }
   catch (e) { err(`отзыв не отправлен: ${e.cause?.code ?? e.message}`); return 1; }
-  if (!res.ok) { err(`отзыв не отправлен: ${res.status}`); return 1; }
+  if (!res.ok) { err(`отзыв не отправлен: ${await whyRejected(res)}`); return 1; }
   out(`отзыв отправлен: ${body.skill} (${body.outcome}), замечаний: ${body.issues.length}`);
   return 0;
 }
@@ -428,8 +445,9 @@ async function feedback(argv) {
   let sent = 0;
   for (const it of items) {
     const { file, ...body } = it;
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(toTicket(body)) });
-    if (!res.ok) { err(`  [FAIL] ${file}: ${res.status}`); continue; }
+    let res;
+    try { res = await postTicket(url, toTicket(body)); } catch (e) { err(`  [FAIL] ${file}: ${e.cause?.code ?? e.message}`); continue; }
+    if (!res.ok) { err(`  [FAIL] ${file}: ${await whyRejected(res)}`); if (res.status === 429 || res.status === 401) break; continue; }
     fs.unlinkSync(path.join(dir, file)); sent++;
   }
   out(`отправлено: ${sent}/${items.length}`);

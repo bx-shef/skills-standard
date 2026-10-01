@@ -69,6 +69,9 @@ npx --yes bxshef@latest feedback send --skill <имя> --agent claude-code --out
 тикета — по самому серьёзному: `wrong` → `BUG`, `unclear`/`noise` → `DOCS`, `missing` → `SUGGESTION`,
 без замечаний — `OTHER`); при `done` нужен хотя бы один `--helped`. Похожее на секрет не уходит.
 Адрес — `{"feedback": "https://…"}` в `.bxshef.json` корня проекта, иначе `BXSHEF_FEEDBACK_URL`.
+Токен отправки, если приёмник его требует (`FEEDBACK_TOKEN`), — только из окружения:
+`BXSHEF_FEEDBACK_TOKEN` (в `.bxshef.json` не класть — файл коммитят). 401 — «токен не принят»,
+429 — «приёмник просит подождать N с».
 Коды выхода: 0 — отправлен, 1 — не отправлен (нет адреса, сеть, приёмник, секрет), 2 — ошибка в параметрах.
 
 Старый путь — файлы в `.bxshef/feedback/` и `npx bxshef feedback [send]` — работает как раньше;

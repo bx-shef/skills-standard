@@ -26,7 +26,8 @@
  *
  * Отправка: не больше FEEDBACK_RATE (20) в минуту с адреса и FEEDBACK_RATE_TOTAL (300)
  * в минуту всего, дальше 429 с Retry-After. Тело до 64 КБ. Необязательный FEEDBACK_TOKEN —
- * тогда POST требует Bearer; bxshef его пока не отправляет, поэтому по умолчанию выключен.
+ * тогда POST требует Bearer (bxshef — из BXSHEF_FEEDBACK_TOKEN); навыки шлют без токена,
+ * поэтому по умолчанию выключен.
  *
  * Хранится не тело как есть, а известные поля отзыва (skill, version, agent, main, task,
  * outcome, issues[].kind/text, helped[]) — строки с ограничением длины, и время приёма. Ни
