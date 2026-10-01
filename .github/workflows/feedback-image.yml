@@ -47,18 +47,21 @@ jobs:
             -e FEEDBACK_READ_TOKEN=ci -e FEEDBACK_RATE=3 skills-feedback:ci
           for i in $(seq 1 20); do curl -fs localhost:8787/health && break; sleep 1; done
           check() { got=$(curl -s -o /dev/null -w '%{http_code}' "${@:2}"); echo "$1 → $got  ${*:2}"; [ "$got" = "$1" ]; }
-          post() { curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"skill":"ci","issues":[]}' localhost:8787/feedback; }
+          post() { curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"category":"DOCS","title":"ci: проверка","body":"ключ vibe_api_AbCdEf1234567890xyz в тексте","context":{"skill":"ci","outcome":"done"}}' localhost:8787/feedback; }
           test "$(post)" = 201
           check 403 -H 'Authorization: Bearer ci' localhost:8787/feedback.md     # снаружи закрыто и с токеном
           docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md', { headers: { authorization: 'Bearer ci' } }).then(async r => { const t = await r.text(); console.log(r.status, t.split('\n')[0]); process.exit(r.ok && t.includes('| ci |') ? 0 : 1) })"
           docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md').then(r => process.exit(r.status === 401 ? 0 : 1))"
           # С 127.0.0.1, но через шлюз Вайбкода или прокси — это «снаружи».
           docker exec fb node -e "fetch('http://127.0.0.1:8787/feedback.md', { headers: { authorization: 'Bearer ci', 'x-vibe-request-id': '1' } }).then(r => process.exit(r.status === 403 ? 0 : 1))"
-          test "$(post)" = 201
+          # Только формат тикета; запрос считается в лимит (первый post выше + этот = 2 из 3).
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"skill":"ci","issues":[]}' localhost:8787/feedback)" = 400
           test "$(post)" = 201
           test "$(post)" = 429                                                    # FEEDBACK_RATE=3 в минуту
           docker exec fb sh -c 'cat /data/*.json' | grep -q '"skill":"ci"'
           if docker exec fb sh -c 'cat /data/*.json' | grep -q '"ip"'; then echo "в отзыве IP"; exit 1; fi
+          if docker exec fb sh -c 'cat /data/*.json' | grep -q 'vibe_api_'; then echo "ключ не вычищен"; exit 1; fi
+          docker exec fb sh -c 'cat /data/*.json' | grep -q 'скрыто: ключ'
           # Кривой адрес запроса не должен ронять процесс.
           printf 'GET //[ HTTP/1.1\r\nHost: x\r\n\r\n' | nc -q1 127.0.0.1 8787 | head -1 | grep -q ' 400 '
           curl -fs localhost:8787/health
