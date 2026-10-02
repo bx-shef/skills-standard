@@ -70,6 +70,15 @@ jobs:
           # Кривой адрес запроса не должен ронять процесс.
           printf 'GET //[ HTTP/1.1\r\nHost: x\r\n\r\n' | nc -q1 127.0.0.1 8787 | head -1 | grep -q ' 400 '
           curl -fs localhost:8787/health
+          # Оценки ответов чата (RATING) — отдельный контейнер: у первого лимит отправки уже выбран.
+          docker run -d --name fb-rating -p 127.0.0.1:8789:8787 -e FEEDBACK_READ_TOKEN=ci skills-feedback:ci
+          for i in $(seq 1 20); do curl -fs localhost:8789/health && break; sleep 1; done
+          rate() { curl -s -o /dev/null -w '%{http_code}' -X POST -d "$1" localhost:8789/feedback; }
+          test "$(rate '{"category":"RATING","title":"Оценка ответа чата","body":"Вопрос и ответ, не помогло.","context":{"skill":"skills-site","rating":-1,"model":"bitrix/bitrixgpt-5.6-agent","page":"/skills","sources":["/skills"]}}')" = 201
+          test "$(rate '{"category":"RATING","title":"Оценка ответа чата","body":"Оценка: полезно.","context":{"skill":"skills-site","rating":1}}')" = 201
+          test "$(rate '{"category":"RATING","title":"Оценка без значения","body":"rating не задан — отказ","context":{"skill":"skills-site"}}')" = 400
+          docker exec fb-rating node -e "fetch('http://127.0.0.1:8787/feedback?category=RATING', { headers: { authorization: 'Bearer ci' } }).then(r => r.json()).then(a => process.exit(a.length === 2 && a.every(x => x.category === 'RATING') ? 0 : 1))"
+          docker exec fb-rating node -e "fetch('http://127.0.0.1:8787/feedback.md', { headers: { authorization: 'Bearer ci' } }).then(r => r.text()).then(t => { console.log(t); process.exit(t.includes('# Оценки чата: 2') && t.includes('/skills') ? 0 : 1) })"
 
       - name: Лог приёмника
         if: always()
