@@ -11,7 +11,10 @@
  *                         { success: true, data: { id, category, title, status, createdAt } }.
  *                         Из текста вычищаются секреты, адреса, домены, почта, IP, пути и
  *                         телефоны — до записи на диск (SCRUB ниже). Прочие поля отбрасываются.
- *   GET  /feedback        список отзывов (JSON), ?skill=имя — только по навыку
+ *                         Категория RATING — оценка ответа чата сайта: context.rating 1 | -1,
+ *                         context.model, context.page, context.sources[] (пути страниц).
+ *   GET  /feedback        список отзывов (JSON), ?skill=имя — только по навыку,
+ *                         ?category=RATING — только оценки чата
  *   GET  /feedback.md     то же, читаемо: сводка по навыкам и последние замечания
  *   GET  /health          200 ok
  *
@@ -135,7 +138,12 @@ function denyRead(req, ip) {
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : undefined);
 // Тикет: category, title, body, context (JSON) или те же поля плоско формой. Навык,
 // о котором тикет, — context.skill. Из context берутся только известные поля.
-const CATEGORIES = new Set(['BUG', 'SUGGESTION', 'DOCS', 'CHAT', 'BOTS', 'OTHER']);
+const CATEGORIES = new Set(['BUG', 'SUGGESTION', 'DOCS', 'CHAT', 'BOTS', 'OTHER', 'RATING']);
+// RATING — оценка ответа чата сайта («полезно / не помогло»): context.skill — откуда (например
+// skills-site), context.rating — 1 или -1, плюс модель, страница и подобранные страницы.
+// Отзывы ИИ-агентов о навыках и оценки чата лежат рядом, но в сводке и выборке — раздельно.
+const MODEL_RE = /^[\w.@+/:-]{1,80}$/;
+const PATH_RE = /^\/[\w./%-]{0,200}$/;
 const OUTCOMES = new Set(['done', 'partial', 'failed']);
 const SKILL_RE = /^[A-Za-z0-9._:-]{1,100}$/;
 const META_RE = /^[\w.@+-]{1,50}$/;
@@ -182,6 +190,7 @@ function normalize(j, stored = false) {
   else if (!stored && JSON.stringify(ctx).length > 10240) errors.push('context — до 10 КБ');
   const skill = ctx && typeof ctx.skill === 'string' && SKILL_RE.test(ctx.skill) ? ctx.skill : null;
   if (ctx && !skill) errors.push('context.skill — имя навыка: буквы, цифры, . _ : -');
+  if (category === 'RATING' && ctx && ctx.rating !== 1 && ctx.rating !== -1) errors.push('context.rating — 1 или -1');
   if (errors.length) return { errors };
 
   const context = { skill };
@@ -189,6 +198,13 @@ function normalize(j, stored = false) {
   if (OUTCOMES.has(ctx.outcome)) context.outcome = ctx.outcome;
   const helped = Array.isArray(ctx.helped) ? ctx.helped.slice(0, 20).map((h) => str(h, 500)).filter(Boolean).map((h) => scrub(h, n).trim()) : [];
   if (helped.length) context.helped = helped;
+  if (category === 'RATING') {
+    context.rating = ctx.rating;
+    if (typeof ctx.model === 'string' && MODEL_RE.test(ctx.model)) context.model = ctx.model;
+    if (typeof ctx.page === 'string' && PATH_RE.test(ctx.page)) context.page = ctx.page;
+    const sources = Array.isArray(ctx.sources) ? ctx.sources.filter((p) => typeof p === 'string' && PATH_RE.test(p)).slice(0, 10) : [];
+    if (sources.length) context.sources = sources;
+  }
   const it = { category, title: scrub(title.slice(0, 200), n), body: scrub(body.slice(0, 20000), n), context };
   const redacted = n.n + (Number.isInteger(j.redacted) && j.redacted > 0 ? j.redacted : 0);
   if (redacted) it.redacted = redacted;
@@ -266,7 +282,9 @@ const clean = (s) => String(s ?? '?')
   .replace(/[\u0000-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g, ' ')
   .replace(/[|`*_[\]<>!\\]/g, '\\$&');
 const CAT_COLS = ['BUG', 'DOCS', 'SUGGESTION', 'OTHER'];
-function summary(items) {
+function summary(all) {
+  const items = all.filter((it) => it.category !== 'RATING');
+  const ratings = all.filter((it) => it.category === 'RATING');
   const by = new Map();
   for (const it of items) {
     const k = it.context.skill;
@@ -280,6 +298,21 @@ function summary(items) {
   md += `\n## Последние тикеты\n\n`;
   for (const it of items.slice(-30).reverse()) {
     md += `- **${clean(it.context.skill)}**@${clean(it.context.version)} [${it.category}] ${clean(it.title)} — ${clean(it.body.slice(0, 300))}\n`;
+  }
+  if (ratings.length) {
+    const bySrc = new Map();
+    for (const it of ratings) {
+      const k = `${it.context.skill} · ${it.context.model || '?'}`;
+      const s = bySrc.get(k) || { up: 0, down: 0 };
+      if (it.context.rating === 1) s.up++; else s.down++;
+      bySrc.set(k, s);
+    }
+    md += `\n# Оценки чата: ${ratings.length}\n\n| откуда · модель | полезно | не помогло |\n|---|---|---|\n`;
+    for (const [k, s] of bySrc) md += `| ${clean(k)} | ${s.up} | ${s.down} |\n`;
+    md += `\n## Последние «не помогло»\n\n`;
+    for (const it of ratings.filter((r) => r.context.rating === -1).slice(-20).reverse()) {
+      md += `- ${clean(it.receivedAt?.slice(0, 16))} ${clean(it.context.page)} — ${clean(it.body.slice(0, 400))} (источники: ${clean((it.context.sources || []).join(', ') || '—')})\n`;
+    }
   }
   return md;
 }
@@ -332,7 +365,8 @@ function handle(req, res) {
     const items = readAll();
     if (url.pathname === '/feedback.md') return text(res, 200, summary(items));
     const skill = url.searchParams.get('skill');
-    return json(res, 200, items.filter((it) => !skill || it.context.skill === skill));
+    const category = (url.searchParams.get('category') || '').toUpperCase();
+    return json(res, 200, items.filter((it) => (!skill || it.context.skill === skill) && (!category || it.category === category)));
   }
   fail(res, 404, 'NOT_FOUND', 'нет такого адреса');
 }
